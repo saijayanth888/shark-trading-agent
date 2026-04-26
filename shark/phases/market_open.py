@@ -12,6 +12,7 @@ from shark.execution.orders import place_bracket_order
 from shark.memory.journal import log_trade
 from shark.signals.generator import generate_signal
 from shark.signals.distributor import send_email_digest
+from shark.signals.templates import trade_signal_html
 from shark.memory import handoff, state
 
 logger = logging.getLogger(__name__)
@@ -159,25 +160,17 @@ def _is_circuit_breaker_triggered() -> bool:
 
 
 def _build_email_body(signal: dict, decision: dict, execution: dict) -> str:
-    symbol = decision.get("symbol", "N/A")
-    entry = execution.get("fill_price", decision.get("entry_price", "N/A"))
-    stop = execution.get("stop_price", decision.get("stop_loss", "N/A"))
-    target = decision.get("target_price", "N/A")
-    rr = decision.get("risk_reward_ratio", "N/A")
-    reasoning = decision.get("reasoning", "")
-    thesis = decision.get("thesis_summary", "")
-    confidence = decision.get("confidence", 0)
-    order_id = execution.get("order_id", "N/A")
-
-    return (
-        f"<h2>Shark Trade Signal — {symbol}</h2>"
-        f"<p><b>Decision:</b> BUY</p>"
-        f"<p><b>Entry:</b> ${entry} | <b>Stop:</b> ${stop} | <b>Target:</b> ${target} | <b>R:R:</b> {rr}</p>"
-        f"<p><b>Confidence:</b> {confidence:.0%}</p>"
-        f"<p><b>Order ID:</b> {order_id}</p>"
-        f"<p><b>Thesis:</b> {thesis}</p>"
-        f"<p><b>Reasoning:</b> {reasoning}</p>"
-        f"<p><i>Signal data: {signal}</i></p>"
+    return trade_signal_html(
+        symbol=decision.get("symbol", "N/A"),
+        side="BUY",
+        entry=execution.get("fill_price", decision.get("entry_price", "N/A")),
+        stop=execution.get("stop_price", decision.get("stop_loss", "N/A")),
+        target=decision.get("target_price", "N/A"),
+        rr=decision.get("risk_reward_ratio", "N/A"),
+        confidence=decision.get("confidence", 0),
+        order_id=execution.get("order_id", "N/A"),
+        thesis=decision.get("thesis_summary", ""),
+        reasoning=decision.get("reasoning", ""),
     )
 
 

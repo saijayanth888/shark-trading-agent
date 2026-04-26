@@ -8,6 +8,7 @@ from shark.data.alpaca_data import get_account, get_positions
 from shark.memory import handoff, state
 from shark.memory.journal import write_daily_summary
 from shark.signals.distributor import send_email_digest
+from shark.signals.templates import daily_summary_html
 
 logger = logging.getLogger(__name__)
 
@@ -35,22 +36,6 @@ def _parse_yesterday_equity(current_equity: float) -> float:
 
     return current_equity
 
-
-def _build_positions_table(positions: list[dict]) -> str:
-    if not positions:
-        return "<p>No open positions.</p>"
-
-    rows = "".join(
-        f"<tr><td>{p['symbol']}</td><td>{p['qty']}</td>"
-        f"<td>${float(p['current_price']):.2f}</td>"
-        f"<td>{float(p.get('unrealized_plpc', 0)) * 100:.2f}%</td></tr>"
-        for p in positions
-    )
-    return (
-        "<table border='1' cellpadding='4'>"
-        "<tr><th>Symbol</th><th>Qty</th><th>Price</th><th>Unreal. P&L%</th></tr>"
-        f"{rows}</table>"
-    )
 
 
 def run(dry_run: bool = False) -> bool:
@@ -128,23 +113,16 @@ def run(dry_run: bool = False) -> bool:
     if circuit_breaker_active:
         subject += " | ⚠ CIRCUIT BREAKER"
 
-    positions_table = _build_positions_table(positions)
-    circuit_status_html = (
-        f"<p style='color:red'><strong>{drawdown_note}</strong></p>"
-        if circuit_breaker_active
-        else "<p>Circuit breaker: OK</p>"
+    body_html = daily_summary_html(
+        date=today,
+        equity=current_equity,
+        cash=cash,
+        day_pnl_dollars=day_pnl_dollars,
+        day_pnl_pct=day_pnl_pct,
+        positions=positions,
+        trades_this_week=weekly_count,
+        circuit_breaker_note=drawdown_note if circuit_breaker_active else "",
     )
-
-    body_html = f"""
-    <h2>Shark EOD Report — {today}</h2>
-    <p><strong>Equity:</strong> ${current_equity:,.2f}</p>
-    <p><strong>Cash:</strong> ${cash:,.2f}</p>
-    <p><strong>Day P&L:</strong> ${day_pnl_dollars:+,.2f} ({sign}{day_pnl_pct:.2f}%)</p>
-    <p><strong>Trades this week:</strong> {weekly_count}</p>
-    {circuit_status_html}
-    <h3>Open Positions</h3>
-    {positions_table}
-    """
 
     try:
         if not dry_run:

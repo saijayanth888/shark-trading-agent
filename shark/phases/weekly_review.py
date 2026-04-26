@@ -8,6 +8,7 @@ from shark.data.perplexity import fetch_market_intel
 from shark.memory import handoff, state
 from shark.memory.journal import write_weekly_review
 from shark.signals.distributor import send_email_digest
+from shark.signals.templates import weekly_review_html
 
 logger = logging.getLogger(__name__)
 
@@ -120,64 +121,6 @@ def _compute_grade(
         return "B"
     return "C"
 
-
-def _build_weekly_email_body(
-    today: str,
-    stats: dict,
-    closed_trades: list[dict],
-    open_positions: list[dict],
-    grade: str,
-    drawdown_note: str,
-) -> str:
-    trades_html = ""
-    if closed_trades:
-        rows = "".join(
-            f"<tr><td>{t['date']}</td><td>{t['symbol']}</td>"
-            f"<td>{t['side']}</td><td>{t['qty']}</td>"
-            f"<td>{t['price']}</td><td>{t['pl']}</td></tr>"
-            for t in closed_trades
-        )
-        trades_html = (
-            "<h3>Closed Trades This Week</h3>"
-            "<table border='1' cellpadding='4'>"
-            "<tr><th>Date</th><th>Symbol</th><th>Side</th>"
-            "<th>Qty</th><th>Price</th><th>P&L</th></tr>"
-            f"{rows}</table>"
-        )
-
-    open_html = ""
-    if open_positions:
-        rows = "".join(
-            f"<tr><td>{p['symbol']}</td><td>{p['qty']}</td>"
-            f"<td>${float(p['current_price']):.2f}</td>"
-            f"<td>{float(p.get('unrealized_plpc', 0)) * 100:.2f}%</td></tr>"
-            for p in open_positions
-        )
-        open_html = (
-            "<h3>Open Positions</h3>"
-            "<table border='1' cellpadding='4'>"
-            "<tr><th>Symbol</th><th>Qty</th><th>Price</th><th>Unreal. P&L%</th></tr>"
-            f"{rows}</table>"
-        )
-
-    cb_html = (
-        f"<p style='color:red'><strong>{drawdown_note}</strong></p>"
-        if drawdown_note
-        else ""
-    )
-
-    return f"""
-    <h2>Shark Weekly Review — {today}</h2>
-    <h3>Grade: {grade}</h3>
-    <p><strong>Week Return:</strong> {stats.get('week_return_pct', 0):+.2f}%</p>
-    <p><strong>Alpha vs S&P 500:</strong> {stats.get('alpha', 0):+.2f}%</p>
-    <p><strong>Win Rate:</strong> {stats.get('win_rate', 0):.1f}% ({stats.get('wins', 0)}W / {stats.get('losses', 0)}L)</p>
-    <p><strong>Profit Factor:</strong> {stats.get('profit_factor', 0):.2f}</p>
-    <p><strong>Equity:</strong> ${stats.get('current_equity', 0):,.2f}</p>
-    {cb_html}
-    {trades_html}
-    {open_html}
-    """
 
 
 def run(dry_run: bool = False) -> bool:
@@ -300,8 +243,19 @@ def run(dry_run: bool = False) -> bool:
         f"Shark Weekly Review {today} | Grade {grade} | "
         f"{sign}{week_return_pct:.2f}% | Alpha {alpha:+.2f}%"
     )
-    body_html = _build_weekly_email_body(
-        today, stats, closed_trades, open_positions, grade, drawdown_note
+    body_html = weekly_review_html(
+        date=today,
+        grade=grade,
+        week_return_pct=week_return_pct,
+        alpha=alpha,
+        win_rate=win_rate,
+        wins=wins,
+        losses=loss_count,
+        profit_factor=profit_factor,
+        equity=current_equity,
+        closed_trades=closed_trades,
+        open_positions=open_positions,
+        drawdown_note=drawdown_note,
     )
 
     try:
