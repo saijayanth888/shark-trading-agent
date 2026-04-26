@@ -194,7 +194,7 @@ def commit_memory(message: str) -> bool:
 
         # Push to remote — required for cloud routines (ephemeral containers)
         push_result = subprocess.run(
-            ["git", "push", "origin", "main"],
+            ["git", "push", "origin", "HEAD:main"],
             cwd=str(_PROJECT_ROOT),
             capture_output=True,
             text=True,
@@ -211,7 +211,7 @@ def commit_memory(message: str) -> bool:
                 timeout=60,
             )
             retry = subprocess.run(
-                ["git", "push", "origin", "main"],
+                ["git", "push", "origin", "HEAD:main"],
                 cwd=str(_PROJECT_ROOT),
                 capture_output=True,
                 text=True,
