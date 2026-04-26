@@ -57,3 +57,10 @@ Approach: "Shark Signals" — trading income + subscription revenue combined.
 - Repository: shark-trading-agent (GitHub)
 - All state is in this memory/ directory — committed after every routine run
 - Hard rules enforced by both Python guardrails (shark/execution/guardrails.py) AND this CLAUDE.md
+
+## Machine-Readable State (parsed by shark/memory/state.py — do not reformat these lines)
+circuit_breaker_triggered: false
+peak_equity: 100000.00
+weekly_trade_count: 0
+weekly_trade_count_reset: 2026-04-28
+current_mode: paper

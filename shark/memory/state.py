@@ -186,20 +186,108 @@ def commit_memory(message: str) -> bool:
             timeout=30,
         )
 
-        if commit_result.returncode == 0:
-            logger.info("Memory committed: %s", message)
-            return True
-        else:
+        if commit_result.returncode != 0:
             logger.error("git commit failed: %s", commit_result.stderr)
             return False
 
+        logger.info("Memory committed: %s", message)
+
+        # Push to remote — required for cloud routines (ephemeral containers)
+        push_result = subprocess.run(
+            ["git", "push", "origin", "main"],
+            cwd=str(_PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if push_result.returncode != 0:
+            # Try rebase pull then push once more
+            subprocess.run(
+                ["git", "pull", "--rebase", "origin", "main"],
+                cwd=str(_PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            retry = subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=str(_PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if retry.returncode != 0:
+                logger.error("git push failed after rebase: %s", retry.stderr)
+                return False
+
+        logger.info("Memory pushed to origin/main")
+        return True
+
     except subprocess.TimeoutExpired:
-        logger.error("git commit timed out.")
+        logger.error("git operation timed out.")
         return False
 
     except Exception as exc:
-        logger.error("Unexpected error during git commit: %s", exc)
+        logger.error("Unexpected error during git commit/push: %s", exc)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker control
+# ---------------------------------------------------------------------------
+
+def set_circuit_breaker_triggered(triggered: bool) -> None:
+    """
+    Write circuit_breaker_triggered: true/false to PROJECT-CONTEXT.md.
+
+    Args:
+        triggered: True to activate the circuit breaker, False to reset it.
+    """
+    if not _CONTEXT_FILE.exists():
+        logger.warning("PROJECT-CONTEXT.md not found; cannot set circuit breaker.")
+        return
+
+    text = _CONTEXT_FILE.read_text(encoding="utf-8")
+    value = "true" if triggered else "false"
+
+    updated = re.sub(
+        r"(circuit_breaker_triggered\s*[:=]\s*)\w+",
+        lambda m: f"{m.group(1)}{value}",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if updated == text:
+        updated = text.rstrip() + f"\ncircuit_breaker_triggered: {value}\n"
+
+    _CONTEXT_FILE.write_text(updated, encoding="utf-8")
+    logger.info("circuit_breaker_triggered set to %s", value)
+
+
+def get_peak_equity() -> float:
+    """Return peak_equity from PROJECT-CONTEXT.md, defaulting to 0.0."""
+    return float(get_portfolio_state().get("peak_equity", 0.0))
+
+
+def update_weekly_trade_count(count: int) -> None:
+    """Write weekly_trade_count: N to PROJECT-CONTEXT.md."""
+    if not _CONTEXT_FILE.exists():
+        return
+
+    text = _CONTEXT_FILE.read_text(encoding="utf-8")
+
+    updated = re.sub(
+        r"(weekly_trade_count\s*[:=]\s*)\d+",
+        lambda m: f"{m.group(1)}{count}",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if updated == text:
+        updated = text.rstrip() + f"\nweekly_trade_count: {count}\n"
+
+    _CONTEXT_FILE.write_text(updated, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

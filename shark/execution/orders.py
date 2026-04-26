@@ -285,3 +285,100 @@ def close_position(symbol: str) -> dict[str, Any]:
         raise RuntimeError(
             f"Unexpected error closing position for {symbol}: {exc}"
         ) from exc
+
+
+def get_open_orders(side: str | None = None) -> list[dict[str, Any]]:
+    """
+    Return all open (pending) orders, optionally filtered by side.
+
+    Args:
+        side: "buy", "sell", or None for all sides.
+
+    Returns:
+        List of order dicts with: order_id, symbol, side, qty, status.
+    """
+    api = _get_client()
+    try:
+        orders = api.list_orders(status="open")
+        result = [_order_to_dict(o) for o in orders]
+        if side:
+            result = [o for o in result if o.get("side") == side]
+        return result
+    except Exception as exc:
+        logger.error("Error fetching open orders: %s", exc)
+        return []
+
+
+def place_bracket_order(
+    symbol: str,
+    qty: int,
+    trail_pct: float = 10.0,
+) -> dict[str, Any]:
+    """
+    Place a market buy entry and immediately attach a GTC trailing stop.
+
+    If the stop placement fails after a confirmed fill, the position is closed
+    immediately to avoid an unprotected open position.
+
+    Args:
+        symbol: Ticker symbol.
+        qty: Number of shares to buy.
+        trail_pct: Trailing stop percentage (default 10.0%).
+
+    Returns:
+        Dict with: order_id, stop_order_id, fill_price, stop_price, symbol, qty.
+
+    Raises:
+        RuntimeError: If the entry order fails or if stop placement fails
+                      and position close also fails.
+    """
+    # Step 1: Place market buy
+    entry = place_order(symbol, qty, "buy", "market")
+    order_id = entry["order_id"]
+    fill_price = entry.get("filled_price")
+
+    logger.info(
+        "Bracket entry placed — %s x%d | order_id=%s | fill=$%s",
+        symbol, qty, order_id, fill_price,
+    )
+
+    # Step 2: Attach trailing stop immediately
+    try:
+        stop = place_trailing_stop(symbol, qty, trail_percent=trail_pct)
+        stop_id = stop["order_id"]
+        logger.info(
+            "Bracket stop attached — %s | stop_order_id=%s | trail=%.1f%%",
+            symbol, stop_id, trail_pct,
+        )
+        return {
+            "order_id": order_id,
+            "stop_order_id": stop_id,
+            "fill_price": fill_price,
+            "stop_price": None,  # trailing stop has no fixed price
+            "symbol": symbol,
+            "qty": qty,
+            "trail_pct": trail_pct,
+        }
+
+    except RuntimeError as stop_exc:
+        # Stop failed — close position immediately rather than leave it unprotected
+        logger.error(
+            "Stop placement failed for %s after fill — emergency close: %s",
+            symbol, stop_exc,
+        )
+        try:
+            close_position(symbol)
+            logger.warning(
+                "Emergency close succeeded for %s after stop failure.", symbol
+            )
+        except RuntimeError as close_exc:
+            logger.error(
+                "Emergency close also failed for %s: %s", symbol, close_exc
+            )
+            raise RuntimeError(
+                f"CRITICAL: {symbol} position open with no stop and close failed: {close_exc}"
+            ) from close_exc
+
+        raise RuntimeError(
+            f"Stop placement failed for {symbol}; position was closed. Entry order_id={order_id}"
+        ) from stop_exc
