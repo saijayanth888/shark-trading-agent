@@ -16,7 +16,7 @@ TRADE_LOG_PATH = PROJECT_ROOT / "memory" / "TRADE-LOG.md"
 
 CIRCUIT_BREAKER_THRESHOLD = 0.85
 EOD_SNAPSHOT_PATTERN = re.compile(
-    r"###\s+.*?—\s+EOD Snapshot\s+\|\s+Portfolio:\s+\$([0-9,]+(?:\.[0-9]+)?)"
+    r"\*\*Portfolio:\*\*\s+\$([0-9,]+(?:\.[0-9]+)?)"
 )
 
 

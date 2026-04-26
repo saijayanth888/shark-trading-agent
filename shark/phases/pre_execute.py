@@ -82,14 +82,14 @@ def _validate_candidate(symbol: str) -> tuple[str, str]:
         logger.warning("Perplexity check failed for %s: %s — proceeding without news gate", symbol, exc)
         ticker_intel = {}
 
-    sentiment = ticker_intel.get("sentiment", "").lower()
+    sentiment_score = float(ticker_intel.get("sentiment_score", 0.0))
     risks = ticker_intel.get("risks", [])
-    new_negative = sentiment == "bearish" or any(
+    new_negative = sentiment_score <= -0.5 or any(
         word in " ".join(risks).lower()
         for word in ("sec investigation", "fraud", "recall", "downgrade", "halt", "delisted")
     )
     if new_negative:
-        return "NEWS_REJECTED", f"Breaking negative catalyst — sentiment: {sentiment}, risks: {risks[:2]}"
+        return "NEWS_REJECTED", f"Breaking negative catalyst — sentiment_score: {sentiment_score:.2f}, risks: {risks[:2]}"
 
     return "CONFIRMED", "Price in zone, volume ok, thesis intact"
 

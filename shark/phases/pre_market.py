@@ -9,6 +9,8 @@ from shark.data.perplexity import fetch_market_intel
 from shark.memory.journal import log_research
 from shark.memory import state
 
+_RESEARCH_LOG = Path(__file__).resolve().parents[2] / "memory" / "RESEARCH-LOG.md"
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_WATCHLIST = ["NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMD", "PLTR", "TSLA"]
@@ -45,24 +47,24 @@ def _read_watchlist() -> list[str]:
 def _score(intel: dict) -> int:
     score = 0
     catalysts: list[str] = intel.get("catalysts", [])
-    sentiment: str = intel.get("sentiment", "").lower()
+    sentiment_score: float = float(intel.get("sentiment_score", 0.0))
     analyst_rating: str = intel.get("analyst_rating", "").lower()
     risks: list[str] = intel.get("risks", [])
+    earnings_days = intel.get("earnings_within_days")
 
     catalyst_text = " ".join(catalysts).lower()
-    has_specific_catalyst = bool(catalysts) and "momentum" not in catalyst_text
+    has_specific_catalyst = bool(intel.get("catalyst_specific", False)) or (
+        bool(catalysts) and "momentum" not in catalyst_text
+    )
     if has_specific_catalyst:
         score += 3
-    if sentiment == "bullish":
+    if sentiment_score >= 0.3:
         score += 2
     if any(word in analyst_rating for word in ("upgrade", "buy", "outperform", "positive")):
         score += 1
-    earnings_risk = any(
-        word in " ".join(risks).lower() for word in ("earnings today", "earnings tomorrow", "reports today", "reports tomorrow")
-    )
-    if earnings_risk:
+    if earnings_days is not None and earnings_days <= 2:
         score -= 3
-    if sentiment == "bearish":
+    if sentiment_score <= -0.3:
         score -= 4
 
     return score
@@ -80,6 +82,43 @@ def _notify_premarket_risk(symbol: str, plpc: float) -> None:
         )
     except Exception as exc:
         logger.error("notify.sh failed for %s: %s", symbol, exc)
+
+
+def _append_candidate_table(date_str: str, viable: list[tuple[int, str, dict]]) -> None:
+    """Append a pipe table of RESEARCH_CANDIDATE rows to today's section in RESEARCH-LOG.md.
+
+    market_open._parse_confirmed_candidates() looks for | SYMBOL | CONFIRMED | rows.
+    pre_execute will overwrite these with CONFIRMED/REJECTED after 9:45 AM validation.
+    Until then, write RESEARCH_CANDIDATE so market_open has something to parse if
+    pre_execute is skipped or fails.
+    """
+    if not viable:
+        return
+    try:
+        text = _RESEARCH_LOG.read_text(encoding="utf-8") if _RESEARCH_LOG.exists() else ""
+    except OSError:
+        logger.error("Cannot read RESEARCH-LOG.md for candidate table append")
+        return
+
+    table = "\n| Symbol | Status | Score |\n|--------|--------|-------|\n"
+    for s, ticker, _ in viable:
+        table += f"| {ticker} | RESEARCH_CANDIDATE | {s} |\n"
+
+    # Insert after today's date header if present, otherwise append
+    header_match = re.search(rf"^## {re.escape(date_str)}", text, re.MULTILINE)
+    if header_match:
+        # Find next section or end
+        next_section = re.search(r"^## \d{4}-\d{2}-\d{2}", text[header_match.end():], re.MULTILINE)
+        if next_section:
+            insert_pos = header_match.end() + next_section.start()
+            new_text = text[:insert_pos].rstrip() + "\n" + table + "\n\n" + text[insert_pos:]
+        else:
+            new_text = text.rstrip() + "\n" + table + "\n"
+    else:
+        new_text = text.rstrip() + f"\n## {date_str}\n" + table + "\n"
+
+    _RESEARCH_LOG.write_text(new_text, encoding="utf-8")
+    logger.info("Candidate table written for %s: %s", date_str, [t for _, t, _ in viable])
 
 
 def run(dry_run: bool = False) -> bool:
@@ -107,18 +146,6 @@ def run(dry_run: bool = False) -> bool:
     scored.sort(key=lambda x: x[0], reverse=True)
     top3 = scored[:3]
 
-    trade_ideas = [
-        {
-            "symbol": ticker,
-            "score": s,
-            "sentiment": info.get("sentiment"),
-            "catalysts": info.get("catalysts", []),
-            "risks": info.get("risks", []),
-            "analyst_rating": info.get("analyst_rating"),
-        }
-        for s, ticker, info in top3
-    ]
-
     all_catalysts = [
         item
         for _, ticker, info in scored
@@ -133,40 +160,42 @@ def run(dry_run: bool = False) -> bool:
         for pos in at_risk
     ]
 
-    bearish_count = sum(1 for _, _, info in scored if info.get("sentiment", "").lower() == "bearish")
+    bearish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score", 0.0)) <= -0.3)
+    bullish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score", 0.0)) >= 0.3)
     market_context = (
         f"Scanned {len(watchlist)} tickers. "
-        f"Bullish: {sum(1 for _, _, i in scored if i.get('sentiment','').lower()=='bullish')}, "
-        f"Bearish: {bearish_count}. "
+        f"Bullish: {bullish_count}, Bearish: {bearish_count}. "
         f"Top catalyst themes: {'; '.join(dict.fromkeys(all_catalysts[:3]))}"
     )
 
-    has_viable_candidates = any(s >= 2 for s, _, _ in top3)
+    viable = [(s, ticker, info) for s, ticker, info in top3 if s >= 2]
     decision = (
-        f"RESEARCH_COMPLETE — {len(top3)} candidates identified for market-open review"
-        if has_viable_candidates
+        f"RESEARCH_COMPLETE — {len(viable)} candidates identified for market-open review"
+        if viable
         else "HOLD — no candidates cleared minimum score threshold (>=2)"
     )
 
-    research_data = {
-        "date": today,
-        "account": account,
-        "positions": positions,
-        "market_context": market_context,
-        "trade_ideas": trade_ideas,
-        "risks": all_risks[:10],
-        "decision": decision,
-    }
-
     if not dry_run:
-        log_research(research_data)
+        # Write one research entry per viable candidate so pre_execute and market_open can read them
+        for s, ticker, info in viable:
+            log_research({
+                "date": today,
+                "symbol": ticker,
+                "sentiment_score": info.get("sentiment_score", 0.0),
+                "thesis": "; ".join(info.get("catalysts", [])),
+                "entry": 0.0,
+                "stop": 0.0,
+                "target": 0.0,
+            })
+        # Append a pipe table so market_open._parse_confirmed_candidates() can find them
+        _append_candidate_table(today, viable)
         committed = state.commit_memory(f"pre-market research {today}")
         if not committed:
             logger.error("state.commit_memory failed")
             return False
     else:
         logger.info("dry_run — skipping log_research and commit")
-        logger.info("research_data: %s", research_data)
+        logger.info("market_context=%s decision=%s viable=%s", market_context, decision, [t for _, t, _ in viable])
 
     logger.info("pre-market phase complete — %s", decision)
     return True
