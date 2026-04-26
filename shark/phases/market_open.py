@@ -23,6 +23,17 @@ _PROJECT_CONTEXT = os.path.join(_REPO_ROOT, "memory", "PROJECT-CONTEXT.md")
 MAX_TRADES_PER_RUN = 3
 _EARNINGS_BLOCK_DAYS = 2  # skip if earnings within this many days
 
+# Static ticker → sector mapping (covers the TRADING-STRATEGY.md watchlist)
+_TICKER_SECTOR: dict[str, str] = {
+    "NVDA": "Technology", "MSFT": "Technology", "AAPL": "Technology",
+    "GOOGL": "Technology", "META": "Technology", "AMD": "Technology",
+    "AVGO": "Technology", "PLTR": "Technology",
+    "JPM": "Financials", "GS": "Financials", "MS": "Financials",
+    "UNH": "Healthcare", "LLY": "Healthcare", "JNJ": "Healthcare",
+    "XOM": "Energy", "CVX": "Energy",
+    "AMZN": "Consumer Discretionary", "TSLA": "Consumer Discretionary",
+}
+
 # Sector → representative ETF for momentum confirmation
 _SECTOR_ETFS: dict[str, str] = {
     "Technology": "XLK",
@@ -250,7 +261,7 @@ def run(dry_run: bool = False) -> bool:
                 continue
 
             # Gate 3 — Sector ETF momentum confirmation
-            sector = "Technology"  # default; enriched by research phase in future
+            sector = _TICKER_SECTOR.get(symbol, "Technology")
             sector_ok, sector_reason = _check_sector_momentum(sector)
             if not sector_ok:
                 logger.info("%s skipped — %s", symbol, sector_reason)
@@ -263,7 +274,7 @@ def run(dry_run: bool = False) -> bool:
                 "symbol": symbol,
                 "qty": estimated_qty,
                 "estimated_cost": estimated_qty * current_price,
-                "sector": "Technology",
+                "sector": sector,
             }
 
             risk = guardrails.run_all(
