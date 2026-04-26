@@ -120,7 +120,7 @@ Rules:
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
             max_tokens=800,
             temperature=0.2,
             system=[
