@@ -21,13 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 def _load_env() -> None:
+    # Cloud routines: env vars are injected by the cloud environment — nothing to load.
+    # Local dev only: if a .env file exists, load it WITHOUT overriding already-set vars.
     env_path = Path(__file__).resolve().parents[1] / ".env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, val = line.partition("=")
-                os.environ.setdefault(key.strip(), val.strip())
+    if not env_path.exists():
+        return  # cloud path — all vars already in os.environ
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())  # never overrides cloud vars
 
 
 def _setup_logging() -> None:
