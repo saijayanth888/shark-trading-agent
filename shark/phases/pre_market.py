@@ -7,7 +7,7 @@ from pathlib import Path
 from shark.data.alpaca_data import get_account, get_positions
 from shark.data.perplexity import fetch_market_intel
 from shark.memory.journal import log_research
-from shark.memory import state
+from shark.memory import handoff, state
 
 _RESEARCH_LOG = Path(__file__).resolve().parents[2] / "memory" / "RESEARCH-LOG.md"
 
@@ -125,6 +125,8 @@ def run(dry_run: bool = False) -> bool:
     today = date.today().isoformat()
     logger.info("pre-market phase starting — %s (dry_run=%s)", today, dry_run)
 
+    handoff.reset_daily_handoff()
+
     watchlist = _read_watchlist()
     logger.info("watchlist: %s", watchlist)
 
@@ -174,6 +176,15 @@ def run(dry_run: bool = False) -> bool:
         if viable
         else "HOLD — no candidates cleared minimum score threshold (>=2)"
     )
+
+    confirmed_tickers = [t for _, t, _ in viable]
+    skipped_tickers = [t for _, t, _ in scored if t not in confirmed_tickers]
+
+    handoff.write_handoff_section("pre-market", {
+        "confirmed": ", ".join(confirmed_tickers) if confirmed_tickers else "none",
+        "skipped": ", ".join(skipped_tickers[:5]) if skipped_tickers else "none",
+        "market": f"bullish={bullish_count} bearish={bearish_count} of {len(watchlist)}",
+    })
 
     if not dry_run:
         # Write one research entry per viable candidate so pre_execute and market_open can read them

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from shark.data.alpaca_data import get_account, get_positions
 from shark.data.perplexity import fetch_market_intel
-from shark.memory import state
+from shark.memory import handoff, state
 from shark.memory.journal import write_weekly_review
 from shark.signals.distributor import send_email_digest
 
@@ -309,6 +309,13 @@ def run(dry_run: bool = False) -> bool:
             send_email_digest(subject=subject, body_html=body_html)
     except Exception:
         logger.exception("send_email_digest failed")
+
+    handoff.write_handoff_section("weekly-review", {
+        "grade": grade,
+        "week_return": f"{week_return_pct:+.2f}%",
+        "alpha": f"{alpha:+.2f}%",
+        "win_rate": f"{win_rate:.1f}% ({wins}W/{loss_count}L)",
+    })
 
     commit_msg = f"weekly review {today} | grade {grade}"
     try:

@@ -12,7 +12,7 @@ from shark.execution.orders import place_bracket_order
 from shark.memory.journal import log_trade
 from shark.signals.generator import generate_signal
 from shark.signals.distributor import send_email_digest
-from shark.memory import state
+from shark.memory import handoff, state
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,10 @@ def run(dry_run: bool = False) -> bool:
         logger.info("Circuit breaker triggered — halting all new trades")
         return True
 
-    candidates = _parse_confirmed_candidates(today)
+    candidates = handoff.get_validated_symbols()
+    if not candidates:
+        logger.info("No handoff validated symbols — falling back to RESEARCH-LOG.md")
+        candidates = _parse_confirmed_candidates(today)
     if not candidates:
         logger.info("No confirmed candidates for %s — nothing to trade", today)
         if not dry_run:
@@ -340,6 +343,11 @@ def run(dry_run: bool = False) -> bool:
         except Exception:
             logger.error("Error processing %s", symbol, exc_info=True)
             continue
+
+    handoff.write_handoff_section("market-open", {
+        "traded": ", ".join(symbols_traded) if symbols_traded else "none",
+        "count": str(trades_placed),
+    })
 
     if not dry_run:
         if trades_placed > 0:

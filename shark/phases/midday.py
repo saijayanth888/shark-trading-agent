@@ -7,7 +7,7 @@ from shark.data.alpaca_data import get_positions
 from shark.data.perplexity import fetch_market_intel
 from shark.execution.orders import close_position
 from shark.execution.stops import manage_stops
-from shark.memory import state
+from shark.memory import handoff, state
 from shark.memory.journal import log_trade
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,14 @@ def run(dry_run: bool = False) -> bool:
             logger.exception("notify.sh failed")
 
     actions_summary = "; ".join(actions_taken) if actions_taken else "no actions"
+
+    handoff.write_handoff_section("midday", {
+        "cuts": ", ".join(cut_symbols) if cut_symbols else "none",
+        "stops_tightened": str(len(stop_actions)),
+        "thesis_breaks": ", ".join(thesis_break_symbols) if thesis_break_symbols else "none",
+        "actions": actions_summary,
+    })
+
     try:
         state.commit_memory(f"midday scan {today}: {actions_summary}")
     except Exception:

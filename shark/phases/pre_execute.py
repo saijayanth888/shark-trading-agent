@@ -5,7 +5,7 @@ from pathlib import Path
 
 from shark.data.alpaca_data import get_account, get_positions, get_bars
 from shark.data.perplexity import fetch_market_intel
-from shark.memory import state
+from shark.memory import handoff, state
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,10 @@ def run(dry_run: bool = False) -> bool:
     today = date.today().isoformat()
     logger.info("pre-execute phase starting — %s (dry_run=%s)", today, dry_run)
 
-    candidates = _read_today_candidates()
+    candidates = handoff.get_confirmed_symbols()
+    if not candidates:
+        logger.info("No handoff candidates — falling back to RESEARCH-LOG.md")
+        candidates = _read_today_candidates()
     if not candidates:
         logger.warning("No candidates found for today — nothing to validate")
         return True
@@ -169,6 +172,11 @@ def run(dry_run: bool = False) -> bool:
     confirmed = [s for s, status, _ in results if status == "CONFIRMED"]
     rejected = [s for s, status, _ in results if status != "CONFIRMED"]
     logger.info("confirmed: %s | rejected: %s", confirmed, rejected)
+
+    handoff.write_handoff_section("pre-execute", {
+        "validated": ", ".join(confirmed) if confirmed else "none",
+        "rejected": ", ".join(rejected) if rejected else "none",
+    })
 
     table = _build_validation_table(results)
 

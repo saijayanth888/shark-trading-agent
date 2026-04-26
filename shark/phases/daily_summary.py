@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from shark.data.alpaca_data import get_account, get_positions
-from shark.memory import state
+from shark.memory import handoff, state
 from shark.memory.journal import write_daily_summary
 from shark.signals.distributor import send_email_digest
 
@@ -151,6 +151,14 @@ def run(dry_run: bool = False) -> bool:
             send_email_digest(subject=subject, body_html=body_html)
     except Exception:
         logger.exception("send_email_digest failed")
+
+    handoff.write_handoff_section("daily-summary", {
+        "equity": f"${current_equity:,.2f}",
+        "cash": f"${cash:,.2f}",
+        "day_pnl": f"{sign}{day_pnl_pct:.2f}%",
+        "open_positions": str(len(positions)),
+        "circuit_breaker": "TRIGGERED" if circuit_breaker_active else "OK",
+    })
 
     commit_msg = f"EOD snapshot {today} | equity ${current_equity:,.2f} | day {sign}{day_pnl_pct:.2f}%"
     try:
