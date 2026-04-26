@@ -25,19 +25,19 @@ Approach: "Shark Signals" — trading income + subscription revenue combined.
 
 ## API Configuration
 - Alpaca: Paper trading endpoint active
-- Perplexity: [set PERPLEXITY_API_KEY in env]
-- Anthropic: [set ANTHROPIC_API_KEY in env]
-- SendGrid: [set SENDGRID_API_KEY and NOTIFY_EMAIL in env]
+- Perplexity: CONFIGURED (sonar-pro validated 2026-04-25)
+- Anthropic: [set ANTHROPIC_API_KEY in routine env vars]
+- SendGrid: [set SENDGRID_API_KEY and NOTIFY_EMAIL in routine env vars]
 
 ## Cloud Routines Status
 | Routine | Cron (ET) | Status |
 |---|---|---|
-| pre-market.md | 6:00 AM Mon-Fri | NOT YET CONFIGURED |
-| pre-execute.md | 9:45 AM Mon-Fri | NOT YET CONFIGURED |
-| market-open.md | 10:00 AM Mon-Fri | NOT YET CONFIGURED |
-| midday.md | 1:00 PM Mon-Fri | NOT YET CONFIGURED |
-| daily-summary.md | 4:15 PM Mon-Fri | NOT YET CONFIGURED |
-| weekly-review.md | 5:00 PM Fri | NOT YET CONFIGURED |
+| pre-market.md | 6:00 AM Mon-Fri | ACTIVE (Idle) |
+| pre-execute.md | 9:45 AM Mon-Fri | ACTIVE (Idle) |
+| market-open.md | 10:00 AM Mon-Fri | ACTIVE (Idle) |
+| midday.md | 1:00 PM Mon-Fri | ACTIVE (Idle) |
+| daily-summary.md | 4:15 PM Mon-Fri | ACTIVE (Idle) |
+| weekly-review.md | 5:00 PM Fri | ACTIVE (Idle — next run May 1) |
 
 ## Sector Failure Tracking
 | Sector | Consecutive Failures | Status |
