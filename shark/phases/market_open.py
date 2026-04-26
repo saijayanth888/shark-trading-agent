@@ -6,10 +6,8 @@ from datetime import date
 from shark.data.alpaca_data import get_account, get_positions, get_bars
 from shark.data.technical import compute_indicators
 from shark.data.perplexity import fetch_market_intel
-from shark.agents.analyst_bull import generate_bull_thesis
-from shark.agents.analyst_bear import generate_bear_thesis
 from shark.execution.guardrails import Guardrails
-from shark.agents.decision_arbiter import make_decision
+from shark.agents.combined_analyst import analyze_symbol
 from shark.execution.orders import place_bracket_order
 from shark.memory.journal import log_trade
 from shark.signals.generator import generate_signal
@@ -259,11 +257,7 @@ def run(dry_run: bool = False) -> bool:
                 continue
             logger.info("%s sector check passed — %s", symbol, sector_reason)
 
-            market_data = {**technicals, "bars": bars}
-
-            bull = generate_bull_thesis(symbol, market_data, perplexity_intel)
-            bear = generate_bear_thesis(symbol, market_data, perplexity_intel)
-
+            # Guardrails FIRST — skip API call if risk check fails (saves 1 combined call)
             estimated_qty = max(1, int(account["buying_power"] * 0.10 / current_price))
             proposed_trade = {
                 "symbol": symbol,
@@ -286,7 +280,11 @@ def run(dry_run: bool = False) -> bool:
                 )
                 continue
 
-            decision = make_decision(bull, bear, risk, technicals)
+            # Single combined call: bull + bear + decision (3 calls → 1, ~80% token savings)
+            analysis = analyze_symbol(symbol, technicals, bars, perplexity_intel, risk)
+            bull = analysis["bull"]
+            bear = analysis["bear"]
+            decision = analysis["decision"]
 
             if decision["decision"] != "BUY":
                 logger.info(
