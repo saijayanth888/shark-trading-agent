@@ -15,7 +15,10 @@ import logging
 import os
 from typing import Any
 
-import anthropic
+try:
+    import anthropic as _anthropic_lib
+except ImportError:
+    _anthropic_lib = None
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,113 @@ def _compress_market_data(technicals: dict[str, Any], bars: list[dict]) -> dict[
     }
 
 
+def _rule_based_analyze(
+    symbol: str,
+    technicals: dict[str, Any],
+    perplexity_intel: dict[str, Any],
+    risk_check: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Deterministic scoring when ANTHROPIC_API_KEY is unavailable.
+    Scores 7 signals (RSI zone, MACD, SMA20, SMA50, volume, catalyst, not-priced-in).
+    BUY threshold: score >= 0.65 with R:R >= 2.0.
+    """
+    price = float(technicals.get("current_price", 0))
+    rsi = float(technicals.get("rsi", technicals.get("rsi_14", 50)))
+    macd_hist = float(technicals.get("macd_histogram", 0))
+    sma20 = float(technicals.get("sma_20", price))
+    sma50 = float(technicals.get("sma_50", price))
+    vol_ratio = float(technicals.get("volume_ratio", 1.0))
+
+    score = 0.0
+    signals: list[str] = []
+
+    if 40 <= rsi <= 65:
+        score += 0.20
+        signals.append(f"RSI {rsi:.1f} in optimal zone")
+    elif rsi > 70:
+        score -= 0.10
+        signals.append(f"RSI {rsi:.1f} overbought — headwind")
+    else:
+        score += 0.05
+        signals.append(f"RSI {rsi:.1f} oversold — watch for reversal")
+
+    if macd_hist > 0:
+        score += 0.15
+        signals.append("MACD histogram positive")
+
+    if price > sma20:
+        score += 0.15
+        signals.append(f"price ${price:.2f} > SMA20 ${sma20:.2f}")
+
+    if price > sma50:
+        score += 0.10
+        signals.append(f"price > SMA50 ${sma50:.2f}")
+
+    if vol_ratio >= 1.5:
+        score += 0.15
+        signals.append(f"volume ratio {vol_ratio:.2f}x — momentum")
+
+    if perplexity_intel.get("catalyst_specific", False):
+        score += 0.15
+        signals.append("specific catalyst confirmed")
+
+    if not perplexity_intel.get("catalyst_priced_in", True):
+        score += 0.10
+        signals.append("catalyst not yet priced in")
+
+    score = max(0.0, min(1.0, score))
+
+    stop = round(price * 0.90, 2)
+    risk = price - stop
+    target = round(price + 2.0 * risk, 2)
+    rr = 2.0
+
+    adj_size = risk_check.get("adjusted_size", 1)
+
+    decision = "BUY" if score >= 0.65 else "NO_TRADE"
+    reason = "; ".join(signals) if signals else "no signals"
+    if decision == "NO_TRADE":
+        reason = f"rule score {score:.2f} < 0.65 — {reason}"
+
+    logger.info(
+        "Rule-based analysis %s: score=%.2f decision=%s", symbol, score, decision
+    )
+
+    bull = {
+        "symbol": symbol,
+        "thesis": f"Technical setup score {score:.2f}/1.00. {reason}",
+        "catalysts": signals[:3],
+        "target_price": target,
+        "entry_zone": {"low": round(price * 0.99, 2), "high": round(price * 1.01, 2)},
+        "timeframe_days": 5,
+        "confidence": score,
+        "supporting_data": f"RSI={rsi:.1f} MACD_hist={macd_hist:.4f} vol_ratio={vol_ratio:.2f}",
+    }
+    bear = {
+        "symbol": symbol,
+        "counter_thesis": "Rule-based bear: score below conviction threshold or overbought RSI.",
+        "risks": ["macro reversal", "stop hit at -10%", "catalyst fails to materialize"],
+        "downside_target": stop,
+        "stop_recommended": stop,
+        "invalidation_signal": "price closes above target",
+        "confidence": round(1.0 - score, 2),
+    }
+    dec = {
+        "decision": decision,
+        "symbol": symbol,
+        "confidence": score,
+        "position_size_pct": float(risk_check.get("position_size_pct", 10)),
+        "entry_price": price,
+        "stop_loss": stop,
+        "target_price": target,
+        "risk_reward_ratio": rr,
+        "reasoning": reason,
+        "thesis_summary": f"{decision} — rule score {score:.2f} | {'; '.join(signals[:2])}",
+    }
+    return {"bull": bull, "bear": bear, "decision": dec, "combined": False}
+
+
 def analyze_symbol(
     symbol: str,
     technicals: dict[str, Any],
@@ -83,6 +193,11 @@ def analyze_symbol(
     if not risk_check.get("approved", False):
         violations = risk_check.get("violations", ["risk check failed"])
         return _no_trade_result(symbol, f"Risk check failed: {'; '.join(violations)}")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or _anthropic_lib is None:
+        logger.info("ANTHROPIC_API_KEY not set — using rule-based analysis for %s", symbol)
+        return _rule_based_analyze(symbol, technicals, perplexity_intel, risk_check)
 
     compact_data = _compress_market_data(technicals, bars)
 
@@ -140,7 +255,7 @@ Return ONLY this JSON (no text outside it):
 
 Rules: Only set decision=BUY if confidence >= 0.70 AND risk_reward_ratio >= 2.0."""
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = _anthropic_lib.Anthropic(api_key=api_key)
 
     try:
         response = client.messages.create(
@@ -197,7 +312,7 @@ Rules: Only set decision=BUY if confidence >= 0.70 AND risk_reward_ratio >= 2.0.
     except json.JSONDecodeError as exc:
         logger.error("Combined analyst JSON parse error for %s: %s", symbol, exc)
         return _no_trade_result(symbol, f"JSON parse error: {exc}")
-    except anthropic.APIError as exc:
+    except (_anthropic_lib.APIError if _anthropic_lib else Exception) as exc:
         logger.error("API error in combined analyst for %s: %s", symbol, exc)
         return _no_trade_result(symbol, f"API error: {exc}")
     except Exception as exc:
