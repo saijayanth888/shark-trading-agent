@@ -77,14 +77,26 @@ def fetch_market_intel(tickers: list[str]) -> dict[str, Any]:
 
     tickers_str = ", ".join(tickers)
     user_prompt = (
-        f"For each of these tickers: {tickers_str}, provide: "
-        "(1) latest news headlines with sentiment (positive/negative/neutral), "
-        "(2) key catalysts in next 5 days, "
-        "(3) risk factors, "
-        "(4) overall sentiment score from -1.0 to +1.0. "
-        "Return as JSON where each key is the ticker symbol and the value is "
-        'an object with keys "sentiment_score" (number), "headlines" (array of '
-        'strings), "catalysts" (array of strings), "risks" (array of strings).'
+        f"For each of these stock tickers: {tickers_str}. For each ticker provide: "
+        "(1) 2-3 specific news headlines with positive/negative/neutral sentiment — cite the actual source and date. "
+        "(2) The SPECIFIC catalyst driving price action TODAY — name the exact event, announcement, product launch, or data point. "
+        "Write 'no specific catalyst — general momentum only' if there is nothing concrete. "
+        "(3) Whether this catalyst is ALREADY PRICED IN to the current price (yes/no — consider if stock already moved >3% on this news). "
+        "(4) Risk factors and specific signals that would INVALIDATE a bullish thesis. "
+        "(5) Days until next earnings report: 0=today, 1=tomorrow, 2-7=this week, null if more than 7 days away or unknown. "
+        "(6) Analyst consensus: buy, hold, or sell. "
+        "(7) Overall sentiment score from -1.0 (very bearish) to +1.0 (very bullish). "
+        "Return ONLY valid JSON — no markdown, no explanation — where each key is the uppercase ticker symbol "
+        "and the value has these exact keys: "
+        '"sentiment_score" (number -1 to 1), '
+        '"headlines" (array of strings), '
+        '"catalysts" (array of strings — specific events only, not vague), '
+        '"catalyst_specific" (boolean: true only if there is a concrete datable news event today), '
+        '"catalyst_priced_in" (boolean: true if stock already moved significantly on this news), '
+        '"risks" (array of strings), '
+        '"invalidation_signals" (array of strings — what would break the bullish thesis), '
+        '"earnings_within_days" (integer 0-7 or null if beyond 7 days), '
+        '"analyst_rating" (string: "buy", "hold", or "sell").'
     )
 
     payload: dict[str, Any] = {
@@ -148,11 +160,20 @@ def fetch_market_intel(tickers: list[str]) -> dict[str, Any]:
         ticker_upper = ticker.upper()
         if ticker_upper in parsed:
             entry = parsed[ticker_upper]
+            raw_days = entry.get("earnings_within_days")
+            earnings_days: int | None = (
+                int(raw_days) if raw_days is not None and str(raw_days).isdigit() else None
+            )
             result[ticker_upper] = {
                 "sentiment_score": float(entry.get("sentiment_score", 0.0)),
                 "headlines": list(entry.get("headlines", [])),
                 "catalysts": list(entry.get("catalysts", [])),
+                "catalyst_specific": bool(entry.get("catalyst_specific", False)),
+                "catalyst_priced_in": bool(entry.get("catalyst_priced_in", False)),
                 "risks": list(entry.get("risks", [])),
+                "invalidation_signals": list(entry.get("invalidation_signals", [])),
+                "earnings_within_days": earnings_days,
+                "analyst_rating": str(entry.get("analyst_rating", "hold")).lower(),
                 "raw_response": raw_content,
             }
         else:
@@ -164,7 +185,12 @@ def fetch_market_intel(tickers: list[str]) -> dict[str, Any]:
                 "sentiment_score": 0.0,
                 "headlines": [],
                 "catalysts": [],
+                "catalyst_specific": False,
+                "catalyst_priced_in": False,
                 "risks": [],
+                "invalidation_signals": [],
+                "earnings_within_days": None,
+                "analyst_rating": "hold",
                 "raw_response": raw_content,
                 "error": f"Ticker {ticker_upper} missing from API response",
             }

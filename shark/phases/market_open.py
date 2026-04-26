@@ -23,6 +23,62 @@ _RESEARCH_LOG = os.path.join(_REPO_ROOT, "memory", "RESEARCH-LOG.md")
 _PROJECT_CONTEXT = os.path.join(_REPO_ROOT, "memory", "PROJECT-CONTEXT.md")
 
 MAX_TRADES_PER_RUN = 3
+_EARNINGS_BLOCK_DAYS = 2  # skip if earnings within this many days
+
+# Sector → representative ETF for momentum confirmation
+_SECTOR_ETFS: dict[str, str] = {
+    "Technology": "XLK",
+    "Financials": "XLF",
+    "Healthcare": "XLV",
+    "Energy": "XLE",
+    "Consumer Discretionary": "XLY",
+    "Communication Services": "XLC",
+    "Industrials": "XLI",
+    "Materials": "XLB",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE",
+    "Consumer Staples": "XLP",
+}
+
+
+def _check_sector_momentum(sector: str) -> tuple[bool, str]:
+    """
+    Return (is_bullish, reason) for the sector ETF.
+
+    Bullish = ETF price above its 20-day SMA and RSI > 45.
+    Falls back to True (pass-through) if the ETF data cannot be fetched,
+    so a Alpaca data outage never blocks all trades.
+    """
+    etf = _SECTOR_ETFS.get(sector)
+    if not etf:
+        return True, f"no ETF mapped for sector '{sector}' — skipping momentum check"
+
+    try:
+        bars = get_bars(etf, timeframe="1Day", limit=30)
+        indicators = compute_indicators(bars)
+        price = indicators["current_price"]
+        sma20 = indicators.get("sma_20")
+        rsi = indicators.get("rsi_14", 50.0)
+
+        if sma20 is None:
+            return True, f"{etf} insufficient data for SMA20"
+
+        above_sma = price > sma20
+        rsi_ok = rsi > 45.0
+
+        if above_sma and rsi_ok:
+            return True, f"{etf} bullish: price ${price:.2f} > SMA20 ${sma20:.2f}, RSI {rsi:.1f}"
+
+        reason = (
+            f"{etf} bearish headwind: "
+            f"price ${price:.2f} {'>' if above_sma else '<'} SMA20 ${sma20:.2f}, "
+            f"RSI {rsi:.1f}"
+        )
+        return False, reason
+
+    except Exception as exc:
+        logger.warning("Sector momentum check failed for %s (%s): %s", sector, etf, exc)
+        return True, f"sector momentum check failed for {etf} — defaulting to pass"
 
 
 def _parse_confirmed_candidates(date_str: str) -> list[str]:
@@ -170,6 +226,38 @@ def run(dry_run: bool = False) -> bool:
 
             intel = fetch_market_intel([symbol])
             perplexity_intel = intel.get(symbol, {})
+
+            # Gate 1 — Earnings proximity block
+            earnings_days = perplexity_intel.get("earnings_within_days")
+            if earnings_days is not None and earnings_days <= _EARNINGS_BLOCK_DAYS:
+                logger.info(
+                    "%s skipped — earnings in %d day(s): never hold through earnings",
+                    symbol, earnings_days,
+                )
+                continue
+
+            # Gate 2 — Catalyst quality: skip if no specific catalyst or already priced in
+            if not perplexity_intel.get("catalyst_specific", True):
+                logger.info(
+                    "%s skipped — no specific catalyst today (vague momentum only)",
+                    symbol,
+                )
+                continue
+
+            if perplexity_intel.get("catalyst_priced_in", False):
+                logger.info(
+                    "%s skipped — catalyst already priced in (stock already moved on this news)",
+                    symbol,
+                )
+                continue
+
+            # Gate 3 — Sector ETF momentum confirmation
+            sector = "Technology"  # default; enriched by research phase in future
+            sector_ok, sector_reason = _check_sector_momentum(sector)
+            if not sector_ok:
+                logger.info("%s skipped — %s", symbol, sector_reason)
+                continue
+            logger.info("%s sector check passed — %s", symbol, sector_reason)
 
             market_data = {**technicals, "bars": bars}
 
