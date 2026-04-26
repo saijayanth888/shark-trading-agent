@@ -30,7 +30,7 @@ def send_email_digest(subject: str, body_html: str) -> bool:
     Returns True on success, False on failure (also writes fallback to SIGNAL-LOG.md).
     """
     from_email = os.environ.get("NOTIFY_FROM_EMAIL", "")
-    app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
+    app_password = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
     to_email = os.environ.get("NOTIFY_EMAIL", "")
 
     if not from_email or not app_password or not to_email:

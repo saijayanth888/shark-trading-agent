@@ -33,6 +33,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 subject, body, to_email, from_email, app_password = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+app_password = app_password.replace(' ', '')  # Gmail shows password with spaces; strip them
 
 msg = MIMEMultipart("alternative")
 msg["Subject"] = subject
