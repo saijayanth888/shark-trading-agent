@@ -2,6 +2,7 @@ import argparse
 import importlib
 import logging
 import os
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -44,6 +45,22 @@ def _setup_logging() -> None:
     logging.getLogger().addHandler(file_handler)
 
 
+def _sync_repo() -> None:
+    """Pull latest main so cloud containers pick up memory from previous routines."""
+    repo_root = Path(__file__).resolve().parents[1]
+    try:
+        subprocess.run(
+            ["git", "pull", "--rebase", "origin", "main"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        logger.info("git pull --rebase completed")
+    except Exception as exc:
+        logger.warning("git sync skipped: %s", exc)
+
+
 def _run_phase(phase: str, dry_run: bool) -> bool:
     module_path = PHASES[phase]
     mod = importlib.import_module(module_path)
@@ -72,6 +89,7 @@ def main() -> None:
     args = parser.parse_args()
 
     logger.info("=== shark run.py starting phase=%s dry_run=%s ===", args.phase, args.dry_run)
+    _sync_repo()
 
     try:
         success = _run_phase(args.phase, dry_run=args.dry_run)
