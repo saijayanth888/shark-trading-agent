@@ -39,10 +39,15 @@ Run Friday at 5:00 PM ET. Grade the week, update strategy, decide watchlist chan
    **Next week focus:** [sectors/themes to watch]
    ```
 
-9. Send weekly email:
-   ```bash
-   bash scripts/notify.sh "Shark Weekly [DATE]: Grade [LETTER] | P&L $[AMOUNT] | vs SPY [ALPHA]pp"
-   ```
+9. Send email via Gmail connector (use Gmail MCP `send_email` tool — do NOT use notify.sh in cloud):
+   - **to:** sharkwaveai@gmail.com
+   - **subject:** `Shark Weekly [DATE]: Grade [LETTER] | $[P&L] | vs SPY [ALPHA]pp`
+   - **body (HTML):** Dark-themed email:
+     - Header: grade, week P&L, alpha vs SPY
+     - Table: all trades this week — ticker, side, entry, exit, P&L $/%
+     - Open positions summary
+     - Strategy notes for next week
+   - Fallback if Gmail MCP unavailable: `bash scripts/notify.sh "Shark Weekly [DATE]: Grade [LETTER] | P&L $[AMOUNT] | vs SPY [ALPHA]pp"`
 
 10. Git commit:
     ```bash

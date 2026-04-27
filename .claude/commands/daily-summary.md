@@ -29,10 +29,14 @@ Run at 4:15 PM ET after market close. Snapshot portfolio state and send email di
    **Circuit breaker:** [ACTIVE/INACTIVE]
    ```
 
-5. Send email notification:
-   ```bash
-   bash scripts/notify.sh "Shark EOD [DATE]: Portfolio $[VALUE] ([PCT]% today) | [N] positions | Cash [PCT]%"
-   ```
+5. Send email via Gmail connector (use Gmail MCP `send_email` tool — do NOT use notify.sh in cloud):
+   - **to:** sharkwaveai@gmail.com
+   - **subject:** `Shark EOD [DATE]: $[VALUE] ([+/-PCT]% today) | [N] positions | Cash [PCT]%`
+   - **body (HTML):** Dark-themed email:
+     - Header: portfolio value + day P&L in $ and %
+     - Table: each position → ticker, shares, entry $, current $, unrealized P&L $ and %
+     - Footer: cash $, cash %, circuit breaker status, weekly trade count
+   - Fallback if Gmail MCP unavailable: `bash scripts/notify.sh "Shark EOD [DATE]: $[VALUE] ([PCT]% today)"`
 
 6. Git commit (MANDATORY — data is lost if not committed):
    ```bash

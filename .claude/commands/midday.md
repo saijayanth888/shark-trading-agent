@@ -39,7 +39,14 @@ Run at 1:00 PM ET. Check all open positions, cut hard losers, tighten stops on w
    - Thesis broken exits: [TICKERS or none]
    ```
 
-6. Git commit:
+6. Send alert via Gmail connector only if action was taken (stopped out OR thesis broken):
+   - Use Gmail MCP `send_email` tool
+   - **to:** sharkwaveai@gmail.com
+   - **subject:** `Shark Alert [DATE] 13:00: [ACTION SUMMARY]`
+   - **body:** What was closed and why, remaining positions with current P&L
+   - Skip email entirely if no positions were closed or stops tightened
+
+7. Git commit:
    ```bash
    git add memory/TRADE-LOG.md && git commit -m "scan: midday [DATE]" && git push origin main
    ```

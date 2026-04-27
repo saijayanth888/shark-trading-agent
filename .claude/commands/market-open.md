@@ -50,7 +50,13 @@ If any gate fails: log reason and exit. No trades today.
    [DATE] BUY [TICKER] [SHARES] @ $[PRICE] | Stop: 10% trail | Thesis: [one line]
    ```
 
-6. Git commit:
+6. Send trade alert via Gmail connector (use Gmail MCP `send_email` tool):
+   - **to:** sharkwaveai@gmail.com
+   - **subject:** `Shark Trade [DATE]: [TICKERS bought or "No trades"] | [N] positions open`
+   - **body:** Bullet list of each trade placed — ticker, shares, price, stop level, thesis. If no trades, state reason (gate failed / no qualifying candidates).
+   - Fallback if Gmail MCP unavailable: skip (non-critical for market-open)
+
+7. Git commit:
    ```bash
    git add memory/ && git commit -m "trades: market-open [DATE] — [TICKERS or 'no trades']" && git push origin main
    ```
