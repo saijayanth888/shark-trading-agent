@@ -7,6 +7,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from shark.context.context_manager import generate_context_briefing, check_context_health
+
 PHASES = {
     "pre-market": "shark.phases.pre_market",
     "pre-execute": "shark.phases.pre_execute",
@@ -14,6 +16,7 @@ PHASES = {
     "midday": "shark.phases.midday",
     "daily-summary": "shark.phases.daily_summary",
     "weekly-review": "shark.phases.weekly_review",
+    "backtest": "shark.phases.backtest",
 }
 
 _LOG_FILE = Path(__file__).resolve().parents[1] / "memory" / "error.log"
@@ -90,6 +93,16 @@ def main() -> None:
 
     logger.info("=== shark run.py starting phase=%s dry_run=%s ===", args.phase, args.dry_run)
     _sync_repo()
+
+    # Generate phase-specific context briefing BEFORE execution
+    try:
+        briefing_path = generate_context_briefing(args.phase)
+        logger.info("Context briefing ready: %s", briefing_path)
+        health = check_context_health()
+        if health.get("over_budget"):
+            logger.warning("CONTEXT HEALTH: memory files exceed safe token threshold — consider archiving")
+    except Exception:
+        logger.warning("Context briefing generation failed — phase will proceed without it")
 
     try:
         success = _run_phase(args.phase, dry_run=args.dry_run)

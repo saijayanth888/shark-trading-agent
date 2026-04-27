@@ -6,7 +6,11 @@ from datetime import date
 from shark.data.alpaca_data import get_account, get_positions, get_bars
 from shark.data.technical import compute_indicators
 from shark.data.perplexity import fetch_market_intel
+from shark.data.market_regime import detect_regime
+from shark.data.relative_strength import compute_relative_strength
+from shark.data.macro_calendar import check_macro_calendar
 from shark.execution.guardrails import Guardrails
+from shark.execution.position_sizer import compute_position_size, compute_partial_exit_plan
 from shark.agents.combined_analyst import analyze_symbol
 from shark.execution.orders import place_bracket_order
 from shark.memory.journal import log_trade
@@ -182,6 +186,39 @@ def run(dry_run: bool = False) -> bool:
         logger.info("Circuit breaker triggered — halting all new trades")
         return True
 
+    # === REGIME DETECTION (new) — determines sizing, confidence thresholds ===
+    regime_data = detect_regime()
+    regime = regime_data["regime"]
+    regime_rules = regime_data["rules"]
+    logger.info(
+        "Market regime: %s — %s",
+        regime.value if hasattr(regime, 'value') else regime,
+        regime_rules.get("description", ""),
+    )
+
+    if not regime_rules.get("new_trades_allowed", True):
+        logger.info("Regime %s blocks all new trades — exiting", regime)
+        handoff.write_handoff_section("market-open", {
+            "traded": "none",
+            "reason": f"regime {regime} blocks new longs",
+        })
+        if not dry_run:
+            state.commit_memory(f"market-open {today}: blocked by regime {regime}")
+        return True
+
+    # === MACRO CALENDAR CHECK (new) ===
+    macro = check_macro_calendar()
+    macro_impact = macro.get("impact_level", "NORMAL")
+    if macro_impact in ("CRITICAL", "HIGH"):
+        logger.info("Macro block: %s — %s", macro_impact, macro.get("description", ""))
+        handoff.write_handoff_section("market-open", {
+            "traded": "none",
+            "reason": f"macro block: {macro.get('description', macro_impact)}",
+        })
+        if not dry_run:
+            state.commit_memory(f"market-open {today}: macro block {macro_impact}")
+        return True
+
     candidates = handoff.get_validated_symbols()
     if not candidates:
         logger.info("No handoff validated symbols — falling back to RESEARCH-LOG.md")
@@ -204,20 +241,26 @@ def run(dry_run: bool = False) -> bool:
     existing_symbols = {p["symbol"].upper() for p in positions}
     weekly_count = state.get_weekly_trade_count()
     peak_equity = state.get_peak_equity()
+    portfolio_value = float(account["portfolio_value"])
 
     account_for_guardrails = {
-        "portfolio_value": account["portfolio_value"],
+        "portfolio_value": portfolio_value,
         "cash": account["cash"],
         "positions": positions,
     }
+
+    # Regime-adjusted max trades per run
+    max_trades = min(MAX_TRADES_PER_RUN, regime_rules.get("max_new_trades_per_day", 3))
+    regime_mult = regime_rules.get("position_size_multiplier", 1.0)
+    macro_mult = macro.get("rules", {}).get("position_size_multiplier", 1.0)
 
     guardrails = Guardrails()
     symbols_traded: list[str] = []
     trades_placed = 0
 
     for symbol in candidates:
-        if trades_placed >= MAX_TRADES_PER_RUN:
-            logger.info("Max trades per run (%d) reached — stopping", MAX_TRADES_PER_RUN)
+        if trades_placed >= max_trades:
+            logger.info("Max trades per run (%d) reached — stopping", max_trades)
             break
 
         if symbol in existing_symbols:
@@ -228,6 +271,7 @@ def run(dry_run: bool = False) -> bool:
             bars = get_bars(symbol, timeframe="1Day", limit=60)
             technicals = compute_indicators(bars)
             current_price = technicals["current_price"]
+            momentum_score = technicals.get("momentum_score", 50.0)
 
             intel = fetch_market_intel([symbol])
             perplexity_intel = intel.get(symbol, {})
@@ -264,12 +308,42 @@ def run(dry_run: bool = False) -> bool:
                 continue
             logger.info("%s sector check passed — %s", symbol, sector_reason)
 
-            # Guardrails FIRST — skip API call if risk check fails (saves 1 combined call)
-            estimated_qty = max(1, int(account["buying_power"] * 0.10 / current_price))
+            # Gate 4 (new) — Relative Strength vs SPY
+            rs_data = compute_relative_strength(symbol)
+            if not rs_data.get("outperforming", False):
+                logger.info(
+                    "%s skipped — underperforming SPY (RS=%.2f, signal=%s)",
+                    symbol, rs_data.get("rs_composite", 0), rs_data.get("rs_rank_signal", "?"),
+                )
+                continue
+            logger.info(
+                "%s RS passed — composite=%.2f signal=%s accel=%.2f",
+                symbol, rs_data["rs_composite"], rs_data["rs_rank_signal"],
+                rs_data.get("acceleration", 0),
+            )
+
+            # === ADVANCED POSITION SIZING (new) ===
+            regime_str = regime.value if hasattr(regime, 'value') else str(regime)
+            atr = technicals.get("atr_14", current_price * 0.02)
+
+            sizing = compute_position_size(
+                portfolio_value=portfolio_value,
+                current_price=current_price,
+                atr=atr,
+                regime_multiplier=regime_mult * macro_mult,
+                peak_equity=peak_equity,
+                confidence=regime_rules.get("confidence_threshold", 0.70),
+            )
+
+            if sizing["shares"] <= 0:
+                logger.info("%s — position sizer returned 0 shares, skipping", symbol)
+                continue
+
+            estimated_qty = sizing["shares"]
             proposed_trade = {
                 "symbol": symbol,
                 "qty": estimated_qty,
-                "estimated_cost": estimated_qty * current_price,
+                "estimated_cost": sizing["dollar_amount"],
                 "sector": sector,
             }
 
@@ -279,6 +353,8 @@ def run(dry_run: bool = False) -> bool:
                 weekly_count + trades_placed,
                 peak_equity,
                 [],
+                regime=regime_str,
+                momentum_score=momentum_score,
             )
 
             if not risk["approved"]:
@@ -287,7 +363,7 @@ def run(dry_run: bool = False) -> bool:
                 )
                 continue
 
-            # Single combined call: bull + bear + decision (3 calls → 1, ~80% token savings)
+            # Single combined call: bull + bear + decision
             analysis = analyze_symbol(symbol, technicals, bars, perplexity_intel, risk)
             bull = analysis["bull"]
             bear = analysis["bear"]
@@ -299,17 +375,26 @@ def run(dry_run: bool = False) -> bool:
                 )
                 continue
 
-            qty = risk["adjusted_size"]
-            logger.info("%s approved qty=%d entry=%.2f", symbol, qty, current_price)
+            qty = min(risk["adjusted_size"], estimated_qty)
+            stop_width = regime_rules.get("stop_width_multiplier", 1.0)
+            trail_pct = 10.0 * stop_width
+
+            logger.info(
+                "%s APPROVED qty=%d entry=%.2f stop=%.2f trail=%.1f%% | "
+                "regime=%s RS=%.2f momentum=%.0f sizing_method=%s",
+                symbol, qty, current_price, sizing["stop_price"], trail_pct,
+                regime_str, rs_data["rs_composite"], momentum_score,
+                sizing["method_used"],
+            )
 
             if dry_run:
                 logger.info("[DRY RUN] Would place bracket order: %s x%d", symbol, qty)
                 continue
 
-            execution = place_bracket_order(symbol, qty, trail_pct=10.0)
+            execution = place_bracket_order(symbol, qty, trail_pct=trail_pct)
 
             fill_price = execution.get("fill_price", current_price)
-            stop_price = execution.get("stop_price", decision["stop_loss"])
+            stop_price = execution.get("stop_price", sizing["stop_price"])
 
             log_trade({
                 "date": today,
@@ -321,6 +406,11 @@ def run(dry_run: bool = False) -> bool:
                 "catalyst": bull.get("catalysts", ""),
                 "target": decision.get("target_price", ""),
                 "rr": decision.get("risk_reward_ratio", ""),
+                "regime": regime_str,
+                "rs_composite": rs_data["rs_composite"],
+                "momentum_score": momentum_score,
+                "sizing_method": sizing["method_used"],
+                "atr": atr,
             })
 
             signal = generate_signal(decision, execution)
@@ -337,9 +427,12 @@ def run(dry_run: bool = False) -> bool:
             logger.error("Error processing %s", symbol, exc_info=True)
             continue
 
+    regime_str = regime.value if hasattr(regime, 'value') else str(regime)
     handoff.write_handoff_section("market-open", {
         "traded": ", ".join(symbols_traded) if symbols_traded else "none",
         "count": str(trades_placed),
+        "regime": regime_str,
+        "macro": macro.get("description", "normal"),
     })
 
     if not dry_run:
@@ -347,11 +440,10 @@ def run(dry_run: bool = False) -> bool:
             state.update_weekly_trade_count(weekly_count + trades_placed)
 
         traded_label = ",".join(symbols_traded) if symbols_traded else "none"
-        state.commit_memory(f"market-open {today}: {traded_label}")
+        state.commit_memory(f"market-open {today}: {traded_label} regime={regime_str}")
 
     logger.info(
-        "market_open phase complete — trades_placed=%d symbols=%s",
-        trades_placed,
-        symbols_traded,
+        "market_open phase complete — trades=%d symbols=%s regime=%s macro=%s",
+        trades_placed, symbols_traded, regime_str, macro_impact,
     )
     return True

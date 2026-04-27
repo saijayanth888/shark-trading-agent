@@ -6,6 +6,10 @@ from pathlib import Path
 
 from shark.data.alpaca_data import get_account, get_positions
 from shark.data.perplexity import fetch_market_intel
+from shark.data.market_regime import detect_regime
+from shark.data.relative_strength import compute_relative_strength, rank_symbols
+from shark.data.macro_calendar import check_macro_calendar
+from shark.agents.trade_reviewer import get_recent_lessons, get_pattern_stats
 from shark.memory.journal import log_research
 from shark.memory import handoff, state
 
@@ -44,7 +48,8 @@ def _read_watchlist() -> list[str]:
     return unique if unique else _DEFAULT_WATCHLIST
 
 
-def _score(intel: dict) -> int:
+def _score(intel: dict, rs_data: dict | None = None, regime_str: str = "") -> int:
+    """Score a ticker based on intel, relative strength, and regime context."""
     score = 0
     catalysts: list[str] = intel.get("catalysts", [])
     sentiment_score: float = float(intel.get("sentiment_score", 0.0))
@@ -66,6 +71,28 @@ def _score(intel: dict) -> int:
         score -= 3
     if sentiment_score <= -0.3:
         score -= 4
+
+    # Relative Strength bonus (new)
+    if rs_data:
+        rs_composite = rs_data.get("rs_composite", 0)
+        rs_signal = rs_data.get("rs_rank_signal", "")
+        if rs_signal == "STRONG_OUTPERFORM":
+            score += 3
+        elif rs_signal == "OUTPERFORM":
+            score += 2
+        elif rs_signal == "UNDERPERFORM":
+            score -= 2
+        elif rs_signal == "STRONG_UNDERPERFORM":
+            score -= 3
+
+        if rs_data.get("acceleration", 0) > 0:
+            score += 1
+
+    # Regime penalty (new): be pickier in volatile regimes
+    if "VOLATILE" in regime_str:
+        score -= 1
+    if "BEAR" in regime_str:
+        score -= 2
 
     return score
 
@@ -127,6 +154,23 @@ def run(dry_run: bool = False) -> bool:
 
     handoff.reset_daily_handoff()
 
+    # === REGIME + MACRO CONTEXT (new) ===
+    regime_data = detect_regime()
+    regime = regime_data["regime"]
+    regime_str = regime.value if hasattr(regime, 'value') else str(regime)
+    regime_rules = regime_data["rules"]
+    logger.info("Pre-market regime: %s", regime_str)
+
+    macro = check_macro_calendar()
+    macro_impact = macro.get("impact_level", "NORMAL")
+    logger.info("Pre-market macro: %s — %s", macro_impact, macro.get("description", ""))
+
+    # Load lessons from past trades (new)
+    recent_lessons = get_recent_lessons(n=5)
+    pattern_stats = get_pattern_stats()
+    if recent_lessons:
+        logger.info("Recent lessons loaded: %d", len(recent_lessons))
+
     watchlist = _read_watchlist()
     logger.info("watchlist: %s", watchlist)
 
@@ -139,14 +183,31 @@ def run(dry_run: bool = False) -> bool:
 
     intel_map: dict = fetch_market_intel(watchlist)
 
+    # === RELATIVE STRENGTH RANKING (new) ===
+    rs_map: dict = {}
+    try:
+        for ticker in watchlist:
+            rs_data = compute_relative_strength(ticker)
+            rs_map[ticker] = rs_data
+        logger.info(
+            "RS scan complete: outperformers=%s",
+            [t for t, rs in rs_map.items() if rs.get("outperforming")],
+        )
+    except Exception:
+        logger.warning("Relative strength scan failed — scoring without RS")
+
     scored: list[tuple[int, str, dict]] = []
     for ticker in watchlist:
         ticker_intel = intel_map.get(ticker, {})
-        s = _score(ticker_intel)
+        ticker_rs = rs_map.get(ticker)
+        s = _score(ticker_intel, rs_data=ticker_rs, regime_str=regime_str)
         scored.append((s, ticker, ticker_intel))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    top3 = scored[:3]
+
+    # Regime-adjusted candidate count
+    max_candidates = regime_rules.get("max_new_trades_per_day", 3)
+    top_n = scored[:max_candidates]
 
     all_catalysts = [
         item
@@ -165,16 +226,23 @@ def run(dry_run: bool = False) -> bool:
     bearish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score", 0.0)) <= -0.3)
     bullish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score", 0.0)) >= 0.3)
     market_context = (
-        f"Scanned {len(watchlist)} tickers. "
+        f"Scanned {len(watchlist)} tickers [regime={regime_str}, macro={macro_impact}]. "
         f"Bullish: {bullish_count}, Bearish: {bearish_count}. "
         f"Top catalyst themes: {'; '.join(dict.fromkeys(all_catalysts[:3]))}"
     )
 
-    viable = [(s, ticker, info) for s, ticker, info in top3 if s >= 2]
+    # Raise minimum score threshold in bear/volatile regimes
+    min_score = 2
+    if "BEAR" in regime_str:
+        min_score = 4
+    elif "VOLATILE" in regime_str:
+        min_score = 3
+
+    viable = [(s, ticker, info) for s, ticker, info in top_n if s >= min_score]
     decision = (
-        f"RESEARCH_COMPLETE — {len(viable)} candidates identified for market-open review"
+        f"RESEARCH_COMPLETE — {len(viable)} candidates (regime={regime_str}, min_score={min_score})"
         if viable
-        else "HOLD — no candidates cleared minimum score threshold (>=2)"
+        else f"HOLD — no candidates cleared threshold (min_score={min_score}, regime={regime_str})"
     )
 
     confirmed_tickers = [t for _, t, _ in viable]
@@ -184,11 +252,14 @@ def run(dry_run: bool = False) -> bool:
         "confirmed": ", ".join(confirmed_tickers) if confirmed_tickers else "none",
         "skipped": ", ".join(skipped_tickers[:5]) if skipped_tickers else "none",
         "market": f"bullish={bullish_count} bearish={bearish_count} of {len(watchlist)}",
+        "regime": regime_str,
+        "macro": macro_impact,
+        "lessons": "; ".join(recent_lessons[:3]) if recent_lessons else "none",
     })
 
     if not dry_run:
-        # Write one research entry per viable candidate so pre_execute and market_open can read them
         for s, ticker, info in viable:
+            ticker_rs = rs_map.get(ticker, {})
             log_research({
                 "date": today,
                 "symbol": ticker,
@@ -198,9 +269,11 @@ def run(dry_run: bool = False) -> bool:
                 "stop": 0.0,
                 "target": 0.0,
             })
-        # Append a pipe table so market_open._parse_confirmed_candidates() can find them
         _append_candidate_table(today, viable)
-        committed = state.commit_memory(f"pre-market research {today}")
+        committed = state.commit_memory(
+            f"pre-market research {today}: regime={regime_str} macro={macro_impact} "
+            f"candidates={','.join(confirmed_tickers) if confirmed_tickers else 'none'}"
+        )
         if not committed:
             logger.error("state.commit_memory failed")
             return False

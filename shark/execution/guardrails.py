@@ -9,6 +9,8 @@ import os
 import logging
 from typing import Any
 
+from shark.data.macro_calendar import check_macro_calendar
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +33,12 @@ class Guardrails:
         )
         self.max_sector_failures: int = int(
             os.getenv("MAX_SECTOR_FAILURES", "2")
+        )
+        self.max_sector_concentration: int = int(
+            os.getenv("MAX_SECTOR_CONCENTRATION", "3")
+        )
+        self.min_momentum_score: float = float(
+            os.getenv("MIN_MOMENTUM_SCORE", "40.0")
         )
 
     # ------------------------------------------------------------------
@@ -195,6 +203,105 @@ class Guardrails:
             f"limit is {self.max_sector_failures}."
         )
 
+    def check_sector_concentration(
+        self, sector: str, positions: list[dict[str, Any]]
+    ) -> tuple[bool, str]:
+        """
+        Prevent over-concentration in a single sector.
+
+        Even if individual position sizes are ok, having 4+ positions in
+        the same sector creates correlated risk that can blow up the portfolio
+        on a sector-wide downturn.
+
+        Args:
+            sector: Sector of the proposed trade.
+            positions: Current open positions (each must have 'sector' key
+                       or we fall back to symbol-based lookup).
+
+        Returns:
+            (True, ok_msg) or (False, fail_msg).
+        """
+        same_sector_count = sum(
+            1 for p in positions
+            if p.get("sector", "").lower() == sector.lower()
+        )
+
+        new_count = same_sector_count + 1
+        if new_count <= self.max_sector_concentration:
+            return True, (
+                f"OK — {new_count}/{self.max_sector_concentration} positions "
+                f"in {sector} sector after trade."
+            )
+        return False, (
+            f"FAIL — would be {new_count} positions in {sector} sector, "
+            f"max concentration is {self.max_sector_concentration}."
+        )
+
+    def check_regime_gate(
+        self, regime: str,
+    ) -> tuple[bool, str]:
+        """
+        Block new trades in BEAR market regimes.
+
+        BULL_QUIET / BULL_VOLATILE: allowed
+        BEAR_QUIET / BEAR_VOLATILE: blocked
+        UNKNOWN: allowed with caution
+
+        Args:
+            regime: Current market regime string.
+
+        Returns:
+            (True, ok_msg) or (False, fail_msg).
+        """
+        if "BEAR" in regime.upper():
+            return False, (
+                f"FAIL — market regime is {regime}. "
+                f"No new longs allowed in BEAR regimes."
+            )
+        return True, f"OK — market regime {regime} allows new trades."
+
+    def check_macro_events(self) -> tuple[bool, str]:
+        """
+        Block trades on major macro event days (FOMC, CPI, NFP).
+
+        Returns:
+            (True, ok_msg) or (False, fail_msg).
+        """
+        macro = check_macro_calendar()
+        impact = macro.get("impact_level", "NORMAL")
+
+        if impact in ("CRITICAL", "HIGH"):
+            desc = macro.get("description", "major event")
+            return False, f"FAIL — macro block: {impact} — {desc}"
+
+        if impact == "ELEVATED":
+            desc = macro.get("description", "nearby event")
+            return True, f"CAUTION — {desc} (half-size recommended)"
+
+        return True, "OK — no major macro events nearby."
+
+    def check_momentum_score(
+        self, momentum_score: float,
+    ) -> tuple[bool, str]:
+        """
+        Block trades with weak technical momentum.
+
+        Args:
+            momentum_score: Composite momentum score (0-100) from technical.py
+
+        Returns:
+            (True, ok_msg) or (False, fail_msg).
+        """
+        if momentum_score >= self.min_momentum_score:
+            return True, (
+                f"OK — momentum score {momentum_score:.0f}/100 "
+                f"(min {self.min_momentum_score:.0f})."
+            )
+        return False, (
+            f"FAIL — momentum score {momentum_score:.0f}/100 "
+            f"below minimum {self.min_momentum_score:.0f}."
+        )
+
     # ------------------------------------------------------------------
     # Aggregate runner
     # ------------------------------------------------------------------
@@ -206,6 +313,8 @@ class Guardrails:
         weekly_count: int,
         peak_equity: float,
         recent_trades: list[dict[str, Any]],
+        regime: str = "BULL_QUIET",
+        momentum_score: float = 100.0,
     ) -> dict[str, Any]:
         """
         Run every guardrail check and return a consolidated result.
@@ -217,20 +326,25 @@ class Guardrails:
             peak_equity: Historical peak portfolio value.
             recent_trades: List of recent trade dicts for sector-failure check.
                 Each dict has: sector (str), result ("win" | "loss").
+            regime: Current market regime string (from market_regime.py).
+            momentum_score: Technical momentum score (0-100) from technical.py.
 
         Returns:
             Dict compatible with risk_manager.check_risk() output:
                 approved (bool), violations (list[str]),
-                adjusted_size (int), checks (dict).
+                adjusted_size (int), checks (dict),
+                macro_multiplier (float).
         """
         portfolio_value = float(account.get("portfolio_value", 0))
         cash = float(account.get("cash", 0))
         estimated_cost = float(proposed_trade.get("estimated_cost", 0))
         qty = int(proposed_trade.get("qty", 0))
         sector = proposed_trade.get("sector", "Unknown")
-        current_count = len(account.get("positions", [])) if "positions" in account else 0
+        positions = account.get("positions", [])
+        current_count = len(positions)
 
         cash_after = cash - estimated_cost
+        macro_multiplier = 1.0
 
         checks: dict[str, dict[str, Any]] = {}
 
@@ -252,6 +366,22 @@ class Guardrails:
         passed, msg = self.check_sector_failures(sector, recent_trades)
         checks["sector_failures"] = {"passed": passed, "message": msg}
 
+        # --- ADVANCED CHECKS ---
+
+        passed, msg = self.check_sector_concentration(sector, positions)
+        checks["sector_concentration"] = {"passed": passed, "message": msg}
+
+        passed, msg = self.check_regime_gate(regime)
+        checks["regime_gate"] = {"passed": passed, "message": msg}
+
+        passed, msg = self.check_macro_events()
+        checks["macro_events"] = {"passed": passed, "message": msg}
+        if "CAUTION" in msg:
+            macro_multiplier = 0.5
+
+        passed, msg = self.check_momentum_score(momentum_score)
+        checks["momentum_score"] = {"passed": passed, "message": msg}
+
         violations = [
             result["message"]
             for result in checks.values()
@@ -270,10 +400,12 @@ class Guardrails:
 
         if approved:
             logger.info(
-                "Guardrails APPROVED — %s (qty=%d, cost=%.2f)",
+                "Guardrails APPROVED — %s (qty=%d, cost=%.2f, regime=%s, macro=%.1f)",
                 proposed_trade.get("symbol"),
                 qty,
                 estimated_cost,
+                regime,
+                macro_multiplier,
             )
         else:
             logger.warning(
@@ -287,4 +419,5 @@ class Guardrails:
             "violations": violations,
             "adjusted_size": adjusted_qty,
             "checks": checks,
+            "macro_multiplier": macro_multiplier,
         }

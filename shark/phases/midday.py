@@ -3,10 +3,14 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
-from shark.data.alpaca_data import get_positions
+from shark.data.alpaca_data import get_positions, get_bars
 from shark.data.perplexity import fetch_market_intel
+from shark.data.technical import compute_indicators
+from shark.data.market_regime import detect_regime
 from shark.execution.orders import close_position
 from shark.execution.stops import manage_stops
+from shark.execution.exit_manager import evaluate_exits, compute_dynamic_stop, check_volatility_expansion
+from shark.agents.trade_reviewer import review_closed_trade, save_lesson
 from shark.memory import handoff, state
 from shark.memory.journal import log_trade
 
@@ -31,11 +35,92 @@ def run(dry_run: bool = False) -> bool:
         state.commit_memory("midday: no positions")
         return True
 
-    cut_symbols = set()
+    # === REGIME DETECTION (new) — affects stop tightening and exit urgency ===
+    regime_data = detect_regime()
+    regime = regime_data["regime"]
+    regime_str = regime.value if hasattr(regime, 'value') else str(regime)
+    logger.info("Midday regime: %s", regime_str)
 
+    cut_symbols = set()
+    closed_trades = []  # for post-trade review
+
+    # === PHASE 1: Exit Manager evaluation (new) — multi-reason exit logic ===
+    exit_actions = evaluate_exits(positions, trade_log=None, regime=regime_str)
+
+    for action in exit_actions:
+        symbol = action["symbol"]
+        exit_action = action["action"]
+        reason = action["reason"]
+        qty_to_close = action.get("qty_to_close", 0)
+
+        if symbol in cut_symbols:
+            continue
+
+        try:
+            if exit_action == "CLOSE_ALL":
+                if not dry_run:
+                    result = close_position(symbol)
+                    fill_price = result.get("fill_price")
+                    qty = result.get("qty", qty_to_close)
+                else:
+                    fill_price = next((p.get("current_price") for p in positions if p["symbol"] == symbol), 0)
+                    qty = qty_to_close
+
+                log_trade({
+                    "date": today,
+                    "symbol": symbol,
+                    "side": f"SELL ({reason[:30]})",
+                    "qty": qty,
+                    "price": fill_price,
+                    "stop": "-",
+                    "catalyst": reason,
+                    "target": "-",
+                    "rr": "-",
+                })
+                cut_symbols.add(symbol)
+                actions_taken.append(f"{symbol}: {reason[:60]}")
+                logger.info("Exit manager closed %s: %s", symbol, reason)
+
+                # Post-trade review (new)
+                pos_data = next((p for p in positions if p["symbol"] == symbol), {})
+                closed_trades.append({
+                    "symbol": symbol,
+                    "exit_price": fill_price,
+                    "pnl_pct": float(pos_data.get("unrealized_plpc", 0)) * 100,
+                    "exit_reason": reason[:30],
+                })
+
+            elif exit_action == "PARTIAL_SELL":
+                tier = action.get("tier", 1)
+                if not dry_run:
+                    result = close_position(symbol, qty=qty_to_close)
+                    fill_price = result.get("fill_price")
+                else:
+                    fill_price = next((p.get("current_price") for p in positions if p["symbol"] == symbol), 0)
+
+                log_trade({
+                    "date": today,
+                    "symbol": symbol,
+                    "side": f"SELL (partial T{tier})",
+                    "qty": qty_to_close,
+                    "price": fill_price,
+                    "stop": "-",
+                    "catalyst": reason,
+                    "target": "-",
+                    "rr": "-",
+                })
+                actions_taken.append(f"{symbol}: partial T{tier} — {qty_to_close} shares")
+                logger.info("Partial sell %s tier %d: %d shares — %s", symbol, tier, qty_to_close, reason)
+
+        except Exception:
+            logger.exception("Exit manager action failed for %s", symbol)
+
+    # === PHASE 2: Legacy hard stop check (safety net) ===
     for pos in positions:
         symbol = pos["symbol"]
-        plpc = pos.get("unrealized_plpc", 0.0)
+        if symbol in cut_symbols:
+            continue
+        plpc = float(pos.get("unrealized_plpc", 0.0))
 
         if plpc <= HARD_STOP_PCT:
             try:
@@ -50,7 +135,7 @@ def run(dry_run: bool = False) -> bool:
                 log_trade({
                     "date": today,
                     "symbol": symbol,
-                    "side": "SELL (stop-out)",
+                    "side": "SELL (hard stop)",
                     "qty": qty,
                     "price": fill_price,
                     "stop": "-",
@@ -61,11 +146,19 @@ def run(dry_run: bool = False) -> bool:
                 cut_symbols.add(symbol)
                 actions_taken.append(f"{symbol}: hard cut at {plpc:.1%}")
                 logger.info("Hard cut %s at %.2f%%", symbol, plpc * 100)
+
+                closed_trades.append({
+                    "symbol": symbol,
+                    "exit_price": fill_price,
+                    "pnl_pct": plpc * 100,
+                    "exit_reason": "stop-out",
+                })
             except Exception:
                 logger.exception("Failed to close position for %s", symbol)
 
     remaining_positions = [p for p in positions if p["symbol"] not in cut_symbols]
 
+    # === PHASE 3: Regime-aware stop management (enhanced) ===
     stop_actions = []
     if remaining_positions:
         try:
@@ -83,6 +176,23 @@ def run(dry_run: bool = False) -> bool:
         except Exception:
             logger.exception("manage_stops failed")
 
+    # === PHASE 4: Volatility expansion check (new) ===
+    for pos in remaining_positions:
+        symbol = pos["symbol"]
+        try:
+            bars = get_bars(symbol, timeframe="1Day", limit=30)
+            technicals = compute_indicators(bars)
+            current_atr = technicals.get("atr_14", 0)
+            # Use 1.5% of price as baseline entry ATR if not tracked
+            entry_atr = float(pos.get("current_price", 0)) * 0.015
+            vol_check = check_volatility_expansion(symbol, current_atr, entry_atr)
+            if vol_check:
+                actions_taken.append(f"{symbol}: {vol_check['reason'][:60]}")
+                logger.warning("%s volatility expansion: %s", symbol, vol_check["reason"])
+        except Exception:
+            logger.debug("Vol expansion check skipped for %s", symbol)
+
+    # === PHASE 5: Thesis break check via Perplexity ===
     thesis_break_symbols = set()
     for pos in remaining_positions:
         symbol = pos["symbol"]
@@ -117,17 +227,37 @@ def run(dry_run: bool = False) -> bool:
                 thesis_break_symbols.add(symbol)
                 actions_taken.append(f"{symbol}: thesis break — {reason}")
                 logger.info("Thesis break close for %s: %s", symbol, reason)
+
+                closed_trades.append({
+                    "symbol": symbol,
+                    "exit_price": fill_price,
+                    "pnl_pct": float(pos.get("unrealized_plpc", 0)) * 100,
+                    "exit_reason": "thesis-break",
+                })
         except Exception:
             logger.exception("Thesis check failed for %s", symbol)
+
+    # === POST-TRADE REVIEW (new) — extract lessons from every closed trade ===
+    for trade in closed_trades:
+        try:
+            review = review_closed_trade(trade, market_context=f"regime={regime_str}")
+            save_lesson(trade, review)
+            logger.info(
+                "Trade review: %s grade=%s pattern=%s lesson=%s",
+                trade["symbol"], review.get("grade"), review.get("pattern"),
+                review.get("lesson", "")[:60],
+            )
+        except Exception:
+            logger.debug("Trade review failed for %s", trade.get("symbol"))
 
     if actions_taken:
         summary = "; ".join(actions_taken)
         subject = f"Shark Midday Alert {today}"
         body = (
-            f"Midday scan on {today} completed with the following actions: {summary}. "
-            f"Positions hard-cut: {len(cut_symbols)}. "
+            f"Midday scan on {today} [regime={regime_str}]: {summary}. "
+            f"Positions closed: {len(cut_symbols)}. "
             f"Stops tightened: {len(stop_actions)}. "
-            f"Thesis breaks closed: {len(thesis_break_symbols)}."
+            f"Thesis breaks: {len(thesis_break_symbols)}."
         )
         try:
             subprocess.run(
@@ -144,6 +274,7 @@ def run(dry_run: bool = False) -> bool:
         "cuts": ", ".join(cut_symbols) if cut_symbols else "none",
         "stops_tightened": str(len(stop_actions)),
         "thesis_breaks": ", ".join(thesis_break_symbols) if thesis_break_symbols else "none",
+        "regime": regime_str,
         "actions": actions_summary,
     })
 

@@ -43,6 +43,9 @@ logs/
 # Memory archive (keep recent, ignore deep archive)
 memory/archive/
 
+# Ephemeral context briefing (regenerated each phase, never commit)
+memory/CONTEXT-BRIEFING.md
+
 # Distribution
 dist/
 build/

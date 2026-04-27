@@ -20,20 +20,33 @@ try:
 except ImportError:
     _anthropic_lib = None
 
+from shark.agents.trade_reviewer import get_recent_lessons
+
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a disciplined trading fund's analysis team. "
-    "Given market data and research intel for a stock, you produce: "
+    "Given market data, regime context, relative strength, and research intel, you produce: "
     "(1) a concise bull thesis, (2) a concise bear counter-thesis, "
     "(3) a final BUY / NO_TRADE / WAIT decision. "
-    "Be specific and data-driven. Only approve trades with conviction >= 0.70 and "
-    "risk/reward >= 2.0. Always return valid JSON with no text outside the JSON object."
+    "CRITICAL RULES: "
+    "- Only BUY if confidence >= 0.70 AND risk/reward >= 2.0. "
+    "- In BEAR regimes, NO new longs. In VOLATILE regimes, require confidence >= 0.80. "
+    "- Stocks underperforming SPY (RS < 1.0) need 0.85+ confidence to BUY. "
+    "- Factor in macro events: reduce conviction near FOMC/CPI/NFP. "
+    "- Learn from past mistakes: review lessons provided. "
+    "Always return valid JSON with no text outside the JSON object."
 )
 
 
-def _compress_market_data(technicals: dict[str, Any], bars: list[dict]) -> dict[str, Any]:
-    """Return a compact market snapshot — last 5 candles + key indicators only."""
+def _compress_market_data(
+    technicals: dict[str, Any],
+    bars: list[dict],
+    regime_str: str = "",
+    rs_data: dict | None = None,
+    macro_impact: str = "NORMAL",
+) -> dict[str, Any]:
+    """Return a compact market snapshot — last 5 candles + key indicators + context."""
     last5 = bars[-5:] if len(bars) >= 5 else bars
     compact_bars = [
         {
@@ -47,19 +60,37 @@ def _compress_market_data(technicals: dict[str, Any], bars: list[dict]) -> dict[
         for b in last5
     ]
 
-    return {
+    data = {
         "current_price": round(float(technicals.get("current_price", 0)), 2),
         "rsi_14": round(float(technicals.get("rsi", technicals.get("rsi_14", 50))), 1),
         "macd_signal": round(float(technicals.get("macd_signal", 0)), 4),
         "macd_histogram": round(float(technicals.get("macd_histogram", 0)), 4),
+        "macd_bullish_cross": technicals.get("macd_bullish_cross", False),
         "bb_upper": round(float(technicals.get("bb_upper", 0)), 2),
         "bb_lower": round(float(technicals.get("bb_lower", 0)), 2),
+        "bb_squeeze": technicals.get("bb_squeeze", False),
+        "adx_14": round(float(technicals.get("adx_14", 0)), 1),
         "volume_ratio": round(float(technicals.get("volume_ratio", 1.0)), 2),
         "sma_20": round(float(technicals.get("sma_20", 0)), 2),
         "sma_50": round(float(technicals.get("sma_50", 0)), 2),
-        "atr": round(float(technicals.get("atr", 0)), 2),
+        "ema_9": round(float(technicals.get("ema_9", 0)), 2),
+        "atr": round(float(technicals.get("atr_14", technicals.get("atr", 0))), 2),
+        "atr_pct": round(float(technicals.get("atr_pct", 0)), 2),
+        "momentum_score": round(float(technicals.get("momentum_score", 50)), 1),
+        "market_regime": regime_str,
+        "macro_impact": macro_impact,
         "last_5_candles": compact_bars,
     }
+
+    if rs_data:
+        data["relative_strength"] = {
+            "rs_composite": round(rs_data.get("rs_composite", 0), 3),
+            "rs_signal": rs_data.get("rs_rank_signal", "UNKNOWN"),
+            "acceleration": round(rs_data.get("acceleration", 0), 3),
+            "outperforming": rs_data.get("outperforming", False),
+        }
+
+    return data
 
 
 def _rule_based_analyze(
@@ -199,11 +230,29 @@ def analyze_symbol(
         logger.info("ANTHROPIC_API_KEY not set — using rule-based analysis for %s", symbol)
         return _rule_based_analyze(symbol, technicals, perplexity_intel, risk_check)
 
-    compact_data = _compress_market_data(technicals, bars)
+    # Get context for enhanced prompts
+    regime_str = risk_check.get("regime", "")
+    rs_data = risk_check.get("rs_data")
+    macro_impact = risk_check.get("macro_impact", "NORMAL")
+
+    compact_data = _compress_market_data(
+        technicals, bars,
+        regime_str=regime_str,
+        rs_data=rs_data,
+        macro_impact=macro_impact,
+    )
+
+    # Inject lessons learned (new)
+    lessons = get_recent_lessons(n=5)
+    lessons_block = ""
+    if lessons:
+        lessons_block = "\n## Lessons from Past Trades (learn from these)\n" + "\n".join(
+            f"- {lesson}" for lesson in lessons
+        ) + "\n"
 
     user_prompt = f"""Analyze {symbol} and return a single JSON object with bull_thesis, bear_thesis, and decision sections.
 
-## Compressed Market Data
+## Compressed Market Data (includes regime, RS, macro context)
 ```json
 {json.dumps(compact_data, indent=2)}
 ```
@@ -217,7 +266,7 @@ def analyze_symbol(
 ```json
 {json.dumps(risk_check, indent=2, default=str)}
 ```
-
+{lessons_block}
 Return ONLY this JSON (no text outside it):
 {{
   "bull_thesis": {{
