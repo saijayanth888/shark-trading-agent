@@ -6,6 +6,7 @@ has appreciated enough to warrant a tighter trail, protecting more profit.
 Never widens or lowers an existing stop.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any
 

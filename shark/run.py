@@ -11,6 +11,12 @@ from pathlib import Path
 # script is invoked directly (e.g. `python shark/run.py <phase>`).
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Auto-install using THIS interpreter — critical for cloud sandbox environments
+# where `python -m pip install` in bash may target a different Python than the runner.
+_req = Path(__file__).resolve().parents[1] / "requirements.txt"
+if _req.exists():
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(_req)], check=False)
+
 from shark.context.context_manager import generate_context_briefing, check_context_health
 
 PHASES = {

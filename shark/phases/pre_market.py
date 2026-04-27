@@ -1,3 +1,4 @@
+from __future__ import annotations
 import logging
 import re
 import subprocess
@@ -7,7 +8,7 @@ from pathlib import Path
 from shark.data.alpaca_data import get_account, get_positions
 from shark.data.perplexity import fetch_market_intel
 from shark.data.market_regime import detect_regime
-from shark.data.relative_strength import compute_relative_strength, rank_symbols
+from shark.data.relative_strength import compute_relative_strength
 from shark.data.macro_calendar import check_macro_calendar
 from shark.agents.trade_reviewer import get_recent_lessons, get_pattern_stats
 from shark.memory.journal import log_research

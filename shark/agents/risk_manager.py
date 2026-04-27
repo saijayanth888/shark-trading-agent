@@ -5,6 +5,7 @@ No AI involved. Hard rule checks that must ALL pass before a trade is approved.
 All limits are configurable via environment variables.
 """
 
+from __future__ import annotations
 import os
 import logging
 from typing import Any

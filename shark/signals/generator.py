@@ -5,6 +5,7 @@ Only generates signals for high-conviction BUY decisions (confidence >= 0.70).
 Returns None for NO_TRADE, WAIT, or low-confidence outcomes.
 """
 
+from __future__ import annotations
 import uuid
 import logging
 from datetime import datetime, timezone

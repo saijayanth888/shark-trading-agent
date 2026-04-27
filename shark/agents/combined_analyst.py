@@ -10,6 +10,7 @@ Context compression:
   - max_tokens capped at 1200
 """
 
+from __future__ import annotations
 import json
 import logging
 import os

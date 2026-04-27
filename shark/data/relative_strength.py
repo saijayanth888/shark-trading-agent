@@ -15,6 +15,7 @@ Institutional money flows into relative strength leaders, creating a
 self-reinforcing momentum effect.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any
 

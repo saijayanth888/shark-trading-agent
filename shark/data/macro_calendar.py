@@ -16,6 +16,7 @@ Data source: Static calendar updated quarterly + Perplexity real-time check.
 Calendar covers 2025-2026. Beyond that, update _EVENTS list.
 """
 
+from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from typing import Any
