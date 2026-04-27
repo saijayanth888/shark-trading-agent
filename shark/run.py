@@ -64,9 +64,12 @@ def _sync_repo() -> None:
         logger.warning("git sync skipped: %s", exc)
 
 
-def _run_phase(phase: str, dry_run: bool) -> bool:
+def _run_phase(phase: str, dry_run: bool, mode: str = "full") -> bool:
+    import inspect
     module_path = PHASES[phase]
     mod = importlib.import_module(module_path)
+    if "mode" in inspect.signature(mod.run).parameters:
+        return mod.run(dry_run=dry_run, mode=mode)
     return mod.run(dry_run=dry_run)
 
 
@@ -89,6 +92,12 @@ def main() -> None:
         default=False,
         help="Run phase logic without writing to memory or placing orders",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["full", "prepare", "execute"],
+        default="full",
+        help="full=local dev (default), prepare=cloud data collection, execute=cloud order placement",
+    )
     args = parser.parse_args()
 
     logger.info("=== shark run.py starting phase=%s dry_run=%s ===", args.phase, args.dry_run)
@@ -105,7 +114,7 @@ def main() -> None:
         logger.warning("Context briefing generation failed — phase will proceed without it")
 
     try:
-        success = _run_phase(args.phase, dry_run=args.dry_run)
+        success = _run_phase(args.phase, dry_run=args.dry_run, mode=args.mode)
     except Exception:
         tb = traceback.format_exc()
         logger.error("Unhandled exception in phase %s:\n%s", args.phase, tb)
