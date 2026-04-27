@@ -37,7 +37,7 @@ Run full pre-market research cycle. Use this locally to preview what the 6am rou
    **Rejected:** [tickers with reason]
    ```
 
-9. Send research summary via Gmail connector (use Gmail MCP `send_email` tool):
+9. Send research summary via Gmail connector (call Gmail MCP `create_draft` to build the draft, then immediately call `send_draft` with the returned draft ID — do NOT stop at draft):
    - **to:** sharkwaveai@gmail.com
    - **subject:** `Shark Pre-Market [DATE]: [N] candidates | Top: [TICKER] (conviction [score])`
    - **body:** Top 3 candidates with thesis bullets, rejected tickers with reason
@@ -45,5 +45,5 @@ Run full pre-market research cycle. Use this locally to preview what the 6am rou
 
 10. Git commit:
     ```bash
-    git add memory/RESEARCH-LOG.md && git commit -m "research: pre-market [DATE]" && git push origin main
+    git add memory/RESEARCH-LOG.md && git commit -m "research: pre-market [DATE]" && git push origin HEAD:main
     ```

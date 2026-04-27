@@ -49,7 +49,7 @@ case "$cmd" in
     tf="${2:-1Day}"
     lim="${3:-60}"
     curl -fsS -H "$H_KEY" -H "$H_SEC" \
-      "$DATA/stocks/$sym/bars?timeframe=$tf&limit=$lim&feed=iex"
+      "$DATA/stocks/$sym/bars?timeframe=$tf&limit=$lim&feed=sip"
     ;;
   orders)
     status="${1:-open}"

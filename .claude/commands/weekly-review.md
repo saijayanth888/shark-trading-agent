@@ -39,7 +39,7 @@ Run Friday at 5:00 PM ET. Grade the week, update strategy, decide watchlist chan
    **Next week focus:** [sectors/themes to watch]
    ```
 
-9. Send email via Gmail connector (use Gmail MCP `send_email` tool — do NOT use notify.sh in cloud):
+9. Send email via Gmail connector (call Gmail MCP `create_draft` to build the draft, then immediately call `send_draft` with the returned draft ID to actually send it — do NOT stop at draft, do NOT use notify.sh in cloud):
    - **to:** sharkwaveai@gmail.com
    - **subject:** `Shark Weekly [DATE]: Grade [LETTER] | $[P&L] | vs SPY [ALPHA]pp`
    - **body (HTML):** Dark-themed email:
@@ -51,5 +51,5 @@ Run Friday at 5:00 PM ET. Grade the week, update strategy, decide watchlist chan
 
 10. Git commit:
     ```bash
-    git add memory/ && git commit -m "review: weekly [DATE] grade=[LETTER] pnl=[AMOUNT]" && git push origin main
+    git add memory/ && git commit -m "review: weekly [DATE] grade=[LETTER] pnl=[AMOUNT]" && git push origin HEAD:main
     ```

@@ -29,7 +29,7 @@ Run at 4:15 PM ET after market close. Snapshot portfolio state and send email di
    **Circuit breaker:** [ACTIVE/INACTIVE]
    ```
 
-5. Send email via Gmail connector (use Gmail MCP `send_email` tool — do NOT use notify.sh in cloud):
+5. Send email via Gmail connector (call Gmail MCP `create_draft` to build the draft, then immediately call `send_draft` with the returned draft ID to actually send it — do NOT stop at draft, do NOT use notify.sh in cloud):
    - **to:** sharkwaveai@gmail.com
    - **subject:** `Shark EOD [DATE]: $[VALUE] ([+/-PCT]% today) | [N] positions | Cash [PCT]%`
    - **body (HTML):** Dark-themed email:
@@ -40,6 +40,6 @@ Run at 4:15 PM ET after market close. Snapshot portfolio state and send email di
 
 6. Git commit (MANDATORY — data is lost if not committed):
    ```bash
-   git add memory/ && git commit -m "eod: daily snapshot [DATE] portfolio=[VALUE]" && git push origin main
+   git add memory/ && git commit -m "eod: daily snapshot [DATE] portfolio=[VALUE]" && git push origin HEAD:main
    ```
-   If push fails: retry up to 3 times with `git pull --rebase origin main && git push origin main`
+   If push fails: retry up to 3 times with `git pull --rebase origin main && git push origin HEAD:main`

@@ -66,7 +66,7 @@ For complex multi-agent analysis, use:
 ## Memory Model
 All state lives in memory/ directory, committed to Git after every routine run.
 File changes VANISH in cloud routines unless committed and pushed.
-ALWAYS end every cloud routine with: git add memory/ && git commit -m "..." && git push origin main
+ALWAYS end every cloud routine with: git add memory/ && git commit -m "..." && git push origin HEAD:main
 
 ## Communication Style
 - Short bullets only

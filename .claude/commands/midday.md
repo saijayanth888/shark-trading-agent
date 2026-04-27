@@ -40,7 +40,7 @@ Run at 1:00 PM ET. Check all open positions, cut hard losers, tighten stops on w
    ```
 
 6. Send alert via Gmail connector only if action was taken (stopped out OR thesis broken):
-   - Use Gmail MCP `send_email` tool
+   - Call Gmail MCP `create_draft` to build the email, then immediately call `send_draft` with the returned draft ID to actually send it — do NOT stop at draft
    - **to:** sharkwaveai@gmail.com
    - **subject:** `Shark Alert [DATE] 13:00: [ACTION SUMMARY]`
    - **body:** What was closed and why, remaining positions with current P&L
@@ -48,5 +48,5 @@ Run at 1:00 PM ET. Check all open positions, cut hard losers, tighten stops on w
 
 7. Git commit:
    ```bash
-   git add memory/TRADE-LOG.md && git commit -m "scan: midday [DATE]" && git push origin main
+   git add memory/TRADE-LOG.md && git commit -m "scan: midday [DATE]" && git push origin HEAD:main
    ```
