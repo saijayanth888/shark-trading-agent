@@ -7,6 +7,10 @@ import sys
 import traceback
 from pathlib import Path
 
+# Ensure repo root is on sys.path so `shark` package resolves when this
+# script is invoked directly (e.g. `python shark/run.py <phase>`).
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from shark.context.context_manager import generate_context_briefing, check_context_health
 
 PHASES = {
