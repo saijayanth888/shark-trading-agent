@@ -1,22 +1,28 @@
 """
-Signal Distribution — sends HTML emails via Gmail SMTP or Resend HTTP API.
+Signal Distribution — sends HTML emails via Gmail REST API, Resend, or SMTP.
 
 Transport priority (first available wins):
-  1. Resend HTTP API  — set RESEND_API_KEY + RESEND_FROM_EMAIL (works in all cloud envs)
-  2. Gmail SMTP       — set GMAIL_APP_PASSWORD + NOTIFY_FROM_EMAIL (blocked in some sandboxes)
-  3. SIGNAL-LOG.md    — always available fallback; committed to git with each phase
+  1. Gmail REST API   — set GMAIL_OAUTH_REFRESH_TOKEN + GMAIL_OAUTH_CLIENT_ID +
+                         GMAIL_OAUTH_CLIENT_SECRET  (HTTPS port 443, works everywhere)
+  2. Resend HTTP API  — set RESEND_API_KEY + RESEND_FROM_EMAIL (HTTPS, works everywhere)
+  3. Gmail SMTP       — set GMAIL_APP_PASSWORD + NOTIFY_FROM_EMAIL (port 587, blocked in sandboxes)
+  4. SIGNAL-LOG.md    — always available fallback; committed to git with each phase
 
 Environment variables:
-  NOTIFY_FROM_EMAIL   — sender address (Gmail for SMTP, verified domain for Resend)
-  NOTIFY_EMAIL        — recipient address
-  GMAIL_APP_PASSWORD  — 16-char Gmail App Password (spaces stripped automatically)
-  RESEND_API_KEY      — optional; if set, Resend is tried before SMTP
-  RESEND_FROM_EMAIL   — optional; sender for Resend (must be verified in Resend dashboard)
+  NOTIFY_FROM_EMAIL          — sender Gmail address (used by API + SMTP)
+  NOTIFY_EMAIL               — recipient address
+  GMAIL_OAUTH_CLIENT_ID      — Google Cloud OAuth2 client ID
+  GMAIL_OAUTH_CLIENT_SECRET  — Google Cloud OAuth2 client secret
+  GMAIL_OAUTH_REFRESH_TOKEN  — long-lived OAuth2 refresh token (obtained once via browser)
+  GMAIL_APP_PASSWORD         — 16-char Gmail App Password (SMTP fallback only)
+  RESEND_API_KEY             — optional; Resend transport
+  RESEND_FROM_EMAIL          — optional; sender for Resend
 """
 
 import logging
 import os
 import smtplib
+import urllib.error
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -31,7 +37,8 @@ _FALLBACK_LOG = Path(__file__).resolve().parents[2] / "memory" / "SIGNAL-LOG.md"
 
 def send_email_digest(subject: str, body_html: str) -> bool:
     """
-    Send an HTML email. Tries Resend → Gmail SMTP → SIGNAL-LOG.md fallback.
+    Send an HTML email.
+    Tries: Gmail REST API → Resend → Gmail SMTP → SIGNAL-LOG.md fallback.
     Returns True only if a real email was delivered.
     """
     to_email = os.environ.get("NOTIFY_EMAIL", "")
@@ -39,6 +46,9 @@ def send_email_digest(subject: str, body_html: str) -> bool:
         logger.warning("Email skipped — NOTIFY_EMAIL not set")
         _write_fallback(subject, body_html)
         return False
+
+    if _try_gmail_api(subject, body_html, to_email):
+        return True
 
     if _try_resend(subject, body_html, to_email):
         return True
@@ -52,7 +62,119 @@ def send_email_digest(subject: str, body_html: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Resend HTTP transport (works in all cloud envs — uses HTTPS port 443)
+# Gmail REST API transport (HTTPS port 443 — works in all environments)
+# ---------------------------------------------------------------------------
+
+_GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+
+
+def _try_gmail_api(subject: str, body_html: str, to_email: str) -> bool:
+    """Send email via Gmail REST API using OAuth2 refresh token.
+
+    This uses HTTPS (port 443) so it works in cloud sandboxes where
+    SMTP (port 587) is blocked.
+    """
+    client_id = os.environ.get("GMAIL_OAUTH_CLIENT_ID", "")
+    client_secret = os.environ.get("GMAIL_OAUTH_CLIENT_SECRET", "")
+    refresh_token = os.environ.get("GMAIL_OAUTH_REFRESH_TOKEN", "")
+    from_email = os.environ.get("NOTIFY_FROM_EMAIL", "")
+
+    if not all([client_id, client_secret, refresh_token, from_email]):
+        return False
+
+    import base64
+    import json as _json
+    import time
+    import urllib.request
+    import urllib.parse
+
+    # Step 1: Exchange refresh token for access token
+    access_token = _get_gmail_access_token(client_id, client_secret, refresh_token)
+    if not access_token:
+        return False
+
+    # Step 2: Build RFC 2822 MIME message
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"Shark Trading Agent <{from_email}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(body_html, "html"))
+
+    raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+
+    # Step 3: Send via Gmail API with retry
+    payload = _json.dumps({"raw": raw_msg}).encode()
+
+    for attempt in range(1, 4):
+        try:
+            req = urllib.request.Request(
+                _GMAIL_SEND_URL,
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 201):
+                    logger.info("Email sent via Gmail API — subject=%r to=%s", subject, to_email)
+                    return True
+                logger.warning("Gmail API returned HTTP %s", resp.status)
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", errors="replace")[:200]
+            logger.warning(
+                "Gmail API attempt %d/3 failed (HTTP %s): %s",
+                attempt, exc.code, body_text,
+            )
+            # 401 = token expired, don't retry with same token
+            if exc.code == 401:
+                access_token = _get_gmail_access_token(client_id, client_secret, refresh_token)
+                if not access_token:
+                    return False
+        except Exception as exc:
+            logger.warning("Gmail API attempt %d/3 failed: %s", attempt, exc)
+
+        if attempt < 3:
+            time.sleep(1.5 * attempt)
+
+    return False
+
+
+def _get_gmail_access_token(
+    client_id: str, client_secret: str, refresh_token: str,
+) -> str:
+    """Exchange a refresh token for a short-lived access token."""
+    import json as _json
+    import urllib.request
+    import urllib.parse
+
+    data = urllib.parse.urlencode({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }).encode()
+
+    try:
+        req = urllib.request.Request(
+            _GMAIL_TOKEN_URL, data=data, method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = _json.loads(resp.read())
+            token = result.get("access_token", "")
+            if token:
+                return token
+            logger.error("Gmail OAuth token response missing access_token")
+    except Exception as exc:
+        logger.error("Gmail OAuth token exchange failed: %s", exc)
+
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Resend HTTP transport (HTTPS port 443)
 # ---------------------------------------------------------------------------
 
 def _try_resend(subject: str, body_html: str, to_email: str) -> bool:

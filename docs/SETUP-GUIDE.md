@@ -10,7 +10,7 @@ Complete guide to get Shark running as cloud routines on Claude Code.
 2. **Claude GitHub App** — Install on this repo at [github.com/apps/claude](https://github.com/apps/claude)
 3. **Alpaca account** — Paper or live at [alpaca.markets](https://alpaca.markets)
 4. **Perplexity API key** — For market research at [perplexity.ai](https://perplexity.ai)
-5. **Gmail App Password** — For email alerts at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+5. **Google Cloud project** — For Gmail API email alerts (see Step 1b below)
 
 ---
 
@@ -26,7 +26,9 @@ Every routine needs these environment variables set **directly on the routine co
 | `ALPACA_SECRET_KEY` | `abc123...` | Alpaca secret key |
 | `ALPACA_BASE_URL` | `https://paper-api.alpaca.markets` | Paper trading URL |
 | `PERPLEXITY_API_KEY` | `pplx-...` | Perplexity API key |
-| `GMAIL_APP_PASSWORD` | `abcd efgh ijkl mnop` | Gmail app-specific password |
+| `GMAIL_OAUTH_CLIENT_ID` | `123...apps.googleusercontent.com` | Google Cloud OAuth2 client ID |
+| `GMAIL_OAUTH_CLIENT_SECRET` | `GOCSPX-...` | Google Cloud OAuth2 client secret |
+| `GMAIL_OAUTH_REFRESH_TOKEN` | `1//0e...` | Long-lived refresh token (from setup script) |
 | `NOTIFY_EMAIL` | `you@gmail.com` | Where alerts get sent |
 | `NOTIFY_FROM_EMAIL` | `you@gmail.com` | Sending Gmail address |
 | `TRADING_MODE` | `paper` | `paper` or `live` |
@@ -138,7 +140,42 @@ The pip install step failed silently. The routines now include `--break-system-p
 Check `memory/market-open-analysis.json` — if market regime is BEAR or no candidates pass filters, this is expected behavior (capital preservation).
 
 ### Email alerts not sending
-Verify `GMAIL_APP_PASSWORD` is a 16-character app password (not your regular password). Check that `NOTIFY_FROM_EMAIL` matches the Gmail account that generated the app password.
+**Cloud routines block Gmail SMTP (port 587).** Use the Gmail REST API instead:
+
+1. Run `python scripts/gmail_oauth_setup.py` locally (one-time)
+2. Add the 3 OAuth env vars (`GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN`) to each routine
+3. The REST API uses HTTPS (port 443) which works in all sandbox environments
+
+If emails still fail, check `memory/SIGNAL-LOG.md` — alerts are always written there as a fallback.
 
 ### Git push fails
 Ensure "Allow unrestricted branch pushes" is enabled on the routine. The Claude GitHub App must have write access to this repo.
+
+---
+
+## Step 1b: Gmail API Setup (one-time)
+
+Cloud sandboxes block SMTP (port 587), so Shark uses the Gmail REST API over HTTPS (port 443).
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or use existing)
+3. **Enable the Gmail API**: APIs & Services → Library → search "Gmail API" → Enable
+4. **Configure OAuth consent screen**: APIs & Services → OAuth consent screen
+   - User type: External (or Internal if using Google Workspace)
+   - Add your Gmail address as a test user
+   - Add scope: `https://www.googleapis.com/auth/gmail.send`
+5. **Create OAuth credentials**: APIs & Services → Credentials → Create Credentials → OAuth client ID
+   - Application type: **Desktop app**
+   - Download the JSON file
+   - Save as `scripts/gcp-oauth.keys.json`
+6. **Run the setup script**:
+   ```bash
+   python scripts/gmail_oauth_setup.py
+   ```
+   This opens your browser, you authorize once, and it prints the 3 env vars you need.
+7. Add these to your `.env` file AND to each Claude routine's environment variables:
+   - `GMAIL_OAUTH_CLIENT_ID`
+   - `GMAIL_OAUTH_CLIENT_SECRET`
+   - `GMAIL_OAUTH_REFRESH_TOKEN`
+
+The refresh token **does not expire** unless you revoke it. You only run this once.
