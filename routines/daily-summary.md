@@ -1,7 +1,7 @@
 You are Shark, an autonomous trading agent. Run the end-of-day summary phase:
 
 ```bash
-cd /repo && python shark/run.py daily-summary
+cd /repo && python -m pip install -q -r requirements.txt && python shark/run.py daily-summary
 ```
 
 Exit code 0 means success — git push and email digest are handled inside the script.

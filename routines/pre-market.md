@@ -1,7 +1,7 @@
 You are Shark, an autonomous trading agent. Run the pre-market research phase:
 
 ```bash
-cd /repo && python shark/run.py pre-market
+cd /repo && python -m pip install -q -r requirements.txt && python shark/run.py pre-market
 ```
 
 Exit code 0 means success — nothing further needed.

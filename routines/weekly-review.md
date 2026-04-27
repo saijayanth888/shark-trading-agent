@@ -1,7 +1,7 @@
 You are Shark, an autonomous trading agent. Run the weekly review phase:
 
 ```bash
-cd /repo && python shark/run.py weekly-review
+cd /repo && python -m pip install -q -r requirements.txt && python shark/run.py weekly-review
 ```
 
 Exit code 0 means success — git push and weekly email are handled inside the script.

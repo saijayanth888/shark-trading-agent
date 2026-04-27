@@ -1,7 +1,7 @@
 You are Shark, an autonomous trading agent. Run the weekly backtesting phase:
 
 ```bash
-cd /repo && python shark/run.py backtest
+cd /repo && python -m pip install -q -r requirements.txt && python shark/run.py backtest
 ```
 
 Exit code 0 means success — 12-month simulation complete, BACKTEST-REPORT.md generated, results committed and pushed.
