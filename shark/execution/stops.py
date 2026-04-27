@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from shark.execution.orders import _get_client, place_trailing_stop
+from shark.execution.orders import _get_client, place_trailing_stop, cancel_order
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,13 @@ _DEFAULT_TRAIL = 10.0   # Default trailing stop %
 _MIN_TRAIL_PCT = 3.0
 
 
-def _get_existing_trail_pct(api: Any, symbol: str) -> float | None:
+def _get_existing_trailing_stop(
+    api: Any, symbol: str,
+) -> tuple[float | None, str | None]:
     """
-    Find the current trailing stop percentage for an open GTC trailing-stop order.
+    Find the current trailing stop for an open GTC trailing-stop order.
 
-    Returns the trail_percent as a float, or None if no trailing stop is found.
+    Returns (trail_percent, order_id) or (None, None) if no trailing stop exists.
     """
     try:
         from alpaca.trading.requests import GetOrdersRequest  # type: ignore[import]
@@ -47,11 +49,12 @@ def _get_existing_trail_pct(api: Any, symbol: str) -> float | None:
                 and side_val == "sell"
             ):
                 trail_pct = getattr(order, "trail_percent", None)
+                order_id = str(getattr(order, "id", "") or "")
                 if trail_pct is not None:
-                    return float(trail_pct)
+                    return float(trail_pct), order_id
     except Exception as exc:
         logger.warning("Could not fetch orders for %s stop check: %s", symbol, exc)
-    return None
+    return None, None
 
 
 def manage_stops(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -99,7 +102,8 @@ def manage_stops(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
             reason = f"Unrealized gain {unrealized_plpc:.1%} >= 15%; tightening to 7%."
         else:
             # Default — no tightening warranted
-            current_trail = _get_existing_trail_pct(api, symbol) or _DEFAULT_TRAIL
+            current_trail, _ = _get_existing_trailing_stop(api, symbol)
+            current_trail = current_trail or _DEFAULT_TRAIL
             actions.append({
                 "symbol": symbol,
                 "action": "skipped",
@@ -115,10 +119,11 @@ def manage_stops(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Safety check: never tighten so much that the stop is within 3% of price
         min_allowed_trail = _MIN_TRAIL_PCT
         if target_trail_pct < min_allowed_trail:
+            existing_trail, _ = _get_existing_trailing_stop(api, symbol)
             actions.append({
                 "symbol": symbol,
                 "action": "skipped",
-                "old_trail_pct": _get_existing_trail_pct(api, symbol) or _DEFAULT_TRAIL,
+                "old_trail_pct": existing_trail or _DEFAULT_TRAIL,
                 "new_trail_pct": target_trail_pct,
                 "reason": (
                     f"Target trail {target_trail_pct}% is within the "
@@ -128,7 +133,7 @@ def manage_stops(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
 
         # Check the current existing trailing stop
-        existing_trail = _get_existing_trail_pct(api, symbol)
+        existing_trail, existing_order_id = _get_existing_trailing_stop(api, symbol)
         old_trail_pct = existing_trail if existing_trail is not None else _DEFAULT_TRAIL
 
         # Never move stop down (only tighten = smaller %)
@@ -144,6 +149,29 @@ def manage_stops(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
             })
             continue
+
+        # Cancel old trailing stop FIRST to avoid duplicate sell orders
+        if existing_order_id:
+            try:
+                cancel_order(existing_order_id)
+                logger.info(
+                    "Cancelled old trailing stop for %s (order_id=%s, trail=%.1f%%)",
+                    symbol, existing_order_id, old_trail_pct,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to cancel old stop for %s (order_id=%s): %s — "
+                    "aborting tighten to avoid duplicate stops",
+                    symbol, existing_order_id, exc,
+                )
+                actions.append({
+                    "symbol": symbol,
+                    "action": "skipped",
+                    "old_trail_pct": old_trail_pct,
+                    "new_trail_pct": target_trail_pct,
+                    "reason": f"Could not cancel old stop: {exc}",
+                })
+                continue
 
         # Place the updated trailing stop
         try:
@@ -163,7 +191,20 @@ def manage_stops(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
             })
 
         except RuntimeError as exc:
-            logger.error("Could not tighten stop for %s: %s", symbol, exc)
+            logger.error(
+                "CRITICAL: Old stop cancelled but new stop failed for %s: %s — "
+                "position may be unprotected!",
+                symbol, exc,
+            )
+            # Try to restore the old stop as a safety net
+            try:
+                place_trailing_stop(symbol, qty, trail_percent=old_trail_pct)
+                logger.info("Restored old trailing stop for %s at %.1f%%", symbol, old_trail_pct)
+            except Exception as restore_exc:
+                logger.error(
+                    "CRITICAL: Could not restore stop for %s: %s — POSITION UNPROTECTED",
+                    symbol, restore_exc,
+                )
             actions.append({
                 "symbol": symbol,
                 "action": "skipped",

@@ -17,13 +17,58 @@ function call.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
-from typing import Any
+import time
+from typing import Any, Callable, TypeVar
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+# ---------------------------------------------------------------------------
+# Retry with exponential backoff — protects against transient API failures
+# ---------------------------------------------------------------------------
+
+def _retry(
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    retryable: tuple[type[Exception], ...] = (OSError, ConnectionError, TimeoutError),
+) -> Callable[[F], F]:
+    """Decorator: retry on transient errors with exponential backoff.
+
+    Non-retryable exceptions (ValueError, EnvironmentError, ImportError)
+    propagate immediately.
+    """
+    def decorator(fn: F) -> F:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exc: Exception | None = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except retryable as exc:
+                    last_exc = exc
+                    if attempt == max_attempts:
+                        break
+                    delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+                    logger.warning(
+                        "%s attempt %d/%d failed (%s) — retrying in %.1fs",
+                        fn.__name__, attempt, max_attempts, exc, delay,
+                    )
+                    time.sleep(delay)
+                except Exception:
+                    raise  # non-retryable: propagate immediately
+            raise RuntimeError(
+                f"{fn.__name__} failed after {max_attempts} attempts: {last_exc}"
+            ) from last_exc
+        return wrapper  # type: ignore[return-value]
+    return decorator
 
 # ---------------------------------------------------------------------------
 # Lazy client initialisation
@@ -138,6 +183,7 @@ def _resolve_timeframe(tf_str: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+@_retry(max_attempts=3, base_delay=1.0)
 def get_account() -> dict[str, Any]:
     """Return key account metrics from Alpaca.
 
@@ -165,6 +211,7 @@ def get_account() -> dict[str, Any]:
     }
 
 
+@_retry(max_attempts=3, base_delay=1.0)
 def get_positions() -> list[dict[str, Any]]:
     """Return all open positions.
 
@@ -208,6 +255,7 @@ def get_positions() -> list[dict[str, Any]]:
     return result
 
 
+@_retry(max_attempts=3, base_delay=1.5)
 def get_bars(
     symbol: str,
     timeframe: str = "1Day",
@@ -304,11 +352,12 @@ def get_bars(
     return bars
 
 
+@_retry(max_attempts=2, base_delay=1.0)
 def get_watchlist_snapshot(tickers: list[str]) -> list[dict[str, Any]]:
     """Fetch the latest quote snapshot for each ticker in *tickers*.
 
-    Tickers that produce an error are skipped with a warning log — they do
-    not cause the whole call to fail.
+    Uses batch API when possible — single request for up to 200 symbols.
+    Individual tickers that produce an error are skipped with a warning.
 
     Parameters
     ----------
@@ -326,72 +375,74 @@ def get_watchlist_snapshot(tickers: list[str]) -> list[dict[str, Any]]:
     EnvironmentError
         If API keys are missing.
     """
+    if not tickers:
+        return []
+
     client = _get_data_client()
     result: list[dict[str, Any]] = []
 
     from alpaca.data.requests import StockSnapshotRequest  # type: ignore[import]
 
+    # Batch request — one HTTP call for all tickers
+    try:
+        snapshots = client.get_stock_snapshot(
+            StockSnapshotRequest(symbol_or_symbols=tickers)
+        )
+        if not isinstance(snapshots, dict):
+            # Single ticker returns a Snapshot object, not a dict
+            snapshots = {tickers[0]: snapshots}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Batch snapshot request failed, falling back to per-ticker: %s", exc)
+        snapshots = {}
+        for ticker in tickers:
+            try:
+                snap = client.get_stock_snapshot(
+                    StockSnapshotRequest(symbol_or_symbols=ticker)
+                )
+                if isinstance(snap, dict):
+                    snapshots.update(snap)
+                else:
+                    snapshots[ticker] = snap
+            except Exception as inner_exc:  # noqa: BLE001
+                logger.warning("Skipping ticker %s — snapshot fetch failed: %s", ticker, inner_exc)
+
     for ticker in tickers:
+        snapshot = snapshots.get(ticker)
+        if snapshot is None:
+            logger.warning("No snapshot data for %s", ticker)
+            continue
+
         try:
-            snapshots = client.get_stock_snapshot(
-                StockSnapshotRequest(symbol_or_symbols=ticker)
-            )
-            snapshot = snapshots.get(ticker) if isinstance(snapshots, dict) else snapshots
-            if snapshot is None:
-                logger.warning("No snapshot data for %s", ticker)
-                continue
-
-            # latest_trade gives last_price
             last_price: float = float(
-                snapshot.latest_trade.price
-                if snapshot.latest_trade
-                else 0.0
+                snapshot.latest_trade.price if snapshot.latest_trade else 0.0
             )
-
-            # latest_quote gives bid / ask
             bid: float = float(
-                snapshot.latest_quote.bid_price
-                if snapshot.latest_quote
-                else 0.0
+                snapshot.latest_quote.bid_price if snapshot.latest_quote else 0.0
             )
             ask: float = float(
-                snapshot.latest_quote.ask_price
-                if snapshot.latest_quote
-                else 0.0
+                snapshot.latest_quote.ask_price if snapshot.latest_quote else 0.0
             )
-
-            # daily_bar gives volume and change_pct
             daily_open: float = float(
-                snapshot.daily_bar.open
-                if snapshot.daily_bar
-                else 0.0
+                snapshot.daily_bar.open if snapshot.daily_bar else 0.0
             )
             volume: float = float(
-                snapshot.daily_bar.volume
-                if snapshot.daily_bar
-                else 0.0
+                snapshot.daily_bar.volume if snapshot.daily_bar else 0.0
             )
 
-            # Calculate percentage change vs. daily open
             if daily_open and daily_open != 0:
                 change_pct = round((last_price - daily_open) / daily_open * 100, 4)
             else:
                 change_pct = 0.0
 
-            result.append(
-                {
-                    "symbol": ticker.upper(),
-                    "bid": bid,
-                    "ask": ask,
-                    "last_price": last_price,
-                    "change_pct": change_pct,
-                    "volume": volume,
-                }
-            )
-
+            result.append({
+                "symbol": ticker.upper(),
+                "bid": bid,
+                "ask": ask,
+                "last_price": last_price,
+                "change_pct": change_pct,
+                "volume": volume,
+            })
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Skipping ticker %s — snapshot fetch failed: %s", ticker, exc
-            )
+            logger.warning("Error parsing snapshot for %s: %s", ticker, exc)
 
     return result

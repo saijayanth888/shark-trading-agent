@@ -62,30 +62,37 @@ def _try_resend(subject: str, body_html: str, to_email: str) -> bool:
     if not api_key:
         return False
 
-    try:
-        import urllib.request, json as _json
-        payload = _json.dumps({
-            "from": f"Shark Trading Agent <{from_email}>",
-            "to": [to_email],
-            "subject": subject,
-            "html": body_html,
-        }).encode()
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            if resp.status in (200, 201):
-                logger.info("Email sent via Resend — subject=%r to=%s", subject, to_email)
-                return True
-            logger.warning("Resend returned HTTP %s", resp.status)
-    except Exception as exc:
-        logger.warning("Resend failed: %s", exc)
+    import json as _json
+    import time
+    import urllib.request
+
+    payload = _json.dumps({
+        "from": f"Shark Trading Agent <{from_email}>",
+        "to": [to_email],
+        "subject": subject,
+        "html": body_html,
+    }).encode()
+
+    for attempt in range(1, 4):  # 3 attempts
+        try:
+            req = urllib.request.Request(
+                "https://api.resend.com/emails",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 201):
+                    logger.info("Email sent via Resend — subject=%r to=%s", subject, to_email)
+                    return True
+                logger.warning("Resend returned HTTP %s", resp.status)
+        except Exception as exc:
+            logger.warning("Resend attempt %d/3 failed: %s", attempt, exc)
+            if attempt < 3:
+                time.sleep(1.5 * attempt)
 
     return False
 

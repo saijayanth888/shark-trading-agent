@@ -6,11 +6,19 @@ are read from environment variables.
 """
 
 from __future__ import annotations
+import functools
 import os
 import logging
-from typing import Any
+import time
+from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+# Max seconds to poll for a market order fill before giving up
+_FILL_POLL_TIMEOUT = 10
+_FILL_POLL_INTERVAL = 0.5
 
 # ---------------------------------------------------------------------------
 # Lazy Alpaca SDK client — deferred until first use so the module loads even
@@ -23,6 +31,80 @@ _trading_client: Any = None
 def _enum_val(v: Any) -> str:
     """Extract string value from an alpaca-py enum or passthrough."""
     return v.value if hasattr(v, "value") else str(v or "")
+
+
+def _retry_order(
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 15.0,
+    retryable: tuple[type[Exception], ...] = (OSError, ConnectionError, TimeoutError),
+) -> Callable[[F], F]:
+    """Retry decorator for order operations with exponential backoff."""
+    def decorator(fn: F) -> F:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exc: Exception | None = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except retryable as exc:
+                    last_exc = exc
+                    if attempt == max_attempts:
+                        break
+                    delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+                    logger.warning(
+                        "%s attempt %d/%d failed (%s) — retrying in %.1fs",
+                        fn.__name__, attempt, max_attempts, exc, delay,
+                    )
+                    time.sleep(delay)
+                except Exception:
+                    raise
+            raise RuntimeError(
+                f"{fn.__name__} failed after {max_attempts} attempts: {last_exc}"
+            ) from last_exc
+        return wrapper  # type: ignore[return-value]
+    return decorator
+
+
+def _poll_for_fill(client: Any, order_id: str) -> dict[str, Any] | None:
+    """Poll Alpaca for order fill status up to _FILL_POLL_TIMEOUT seconds.
+
+    Returns the updated order object if filled, or None if still unfilled.
+    """
+    deadline = time.monotonic() + _FILL_POLL_TIMEOUT
+    while time.monotonic() < deadline:
+        try:
+            order = client.get_order_by_id(order_id)
+            status = _enum_val(getattr(order, "status", "")).lower()
+            if status == "filled":
+                return _order_to_dict(order)
+            if status in ("canceled", "cancelled", "expired", "rejected"):
+                logger.warning("Order %s reached terminal status: %s", order_id, status)
+                return _order_to_dict(order)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Poll error for order %s: %s", order_id, exc)
+        time.sleep(_FILL_POLL_INTERVAL)
+    logger.warning("Order %s not filled within %ds poll window", order_id, _FILL_POLL_TIMEOUT)
+    return None
+
+
+def get_existing_position(symbol: str) -> dict[str, Any] | None:
+    """Check if we already have an open position for symbol.
+
+    Returns position dict or None. Used as a duplicate trade guard.
+    """
+    client = _get_client()
+    try:
+        pos = client.get_open_position(symbol)
+        return {
+            "symbol": pos.symbol,
+            "qty": int(float(pos.qty)),
+            "avg_entry_price": float(pos.avg_entry_price),
+            "market_value": float(pos.market_value),
+            "unrealized_pl": float(pos.unrealized_pl),
+        }
+    except Exception:  # noqa: BLE001
+        return None  # no position = normal case
 
 
 def _get_client() -> Any:
@@ -83,6 +165,7 @@ def _order_to_dict(order: Any) -> dict[str, Any]:
 # Public API
 # ---------------------------------------------------------------------------
 
+@_retry_order(max_attempts=3, base_delay=1.0)
 def place_order(
     symbol: str,
     qty: int,
@@ -91,6 +174,9 @@ def place_order(
 ) -> dict[str, Any]:
     """
     Place an equity order on Alpaca.
+
+    For market orders, polls for fill confirmation up to _FILL_POLL_TIMEOUT
+    seconds so the returned dict always has an accurate filled_price.
 
     Args:
         symbol: Ticker symbol (e.g. "AAPL").
@@ -128,6 +214,17 @@ def place_order(
             result["order_id"],
             result["status"],
         )
+
+        # Poll for fill if market order wasn't immediately filled
+        if order_type == "market" and result.get("filled_price") is None:
+            filled = _poll_for_fill(client, result["order_id"])
+            if filled:
+                result = filled
+                logger.info(
+                    "Order filled — %s %s x%d | fill=$%s",
+                    side.upper(), symbol, qty, result["filled_price"],
+                )
+
         return result
 
     except Exception as exc:
@@ -135,6 +232,7 @@ def place_order(
         raise RuntimeError(f"Alpaca order failed for {symbol}: {exc}") from exc
 
 
+@_retry_order(max_attempts=3, base_delay=1.0)
 def place_trailing_stop(
     symbol: str,
     qty: int,
@@ -250,6 +348,7 @@ def cancel_all_orders() -> int:
         return 0
 
 
+@_retry_order(max_attempts=3, base_delay=1.0)
 def close_position(symbol: str) -> dict[str, Any]:
     """
     Close the entire open position for a symbol via a market sell.
@@ -294,6 +393,7 @@ def close_position(symbol: str) -> dict[str, Any]:
         raise RuntimeError(f"Could not close position for {symbol}: {exc}") from exc
 
 
+@_retry_order(max_attempts=2, base_delay=0.5)
 def get_open_orders(side: str | None = None) -> list[dict[str, Any]]:
     """
     Return all open (pending) orders, optionally filtered by side.
@@ -329,8 +429,9 @@ def place_bracket_order(
     """
     Place a market buy entry and immediately attach a GTC trailing stop.
 
-    If the stop placement fails after a confirmed fill, the position is closed
-    immediately to avoid an unprotected open position.
+    Includes duplicate trade guard — will not open a second position if one
+    already exists.  If the stop placement fails after a confirmed fill, the
+    position is closed immediately to avoid an unprotected open position.
 
     Args:
         symbol: Ticker symbol.
@@ -344,14 +445,32 @@ def place_bracket_order(
         RuntimeError: If the entry order fails or if stop placement fails
                       and position close also fails.
     """
-    # Step 1: Place market buy
+    # Duplicate trade guard — check for existing position
+    existing = get_existing_position(symbol)
+    if existing:
+        logger.warning(
+            "DUPLICATE GUARD: Already holding %s x%d — skipping bracket order",
+            symbol, existing["qty"],
+        )
+        raise RuntimeError(
+            f"Duplicate trade blocked: already holding {symbol} x{existing['qty']}"
+        )
+
+    # Step 1: Place market buy (with fill polling)
     entry = place_order(symbol, qty, "buy", "market")
     order_id = entry["order_id"]
     fill_price = entry.get("filled_price")
 
+    # Validate fill status before attaching stop
+    entry_status = (entry.get("status") or "").lower()
+    if entry_status in ("canceled", "cancelled", "expired", "rejected"):
+        raise RuntimeError(
+            f"Entry order for {symbol} was {entry_status} (order_id={order_id})"
+        )
+
     logger.info(
-        "Bracket entry placed — %s x%d | order_id=%s | fill=$%s",
-        symbol, qty, order_id, fill_price,
+        "Bracket entry placed — %s x%d | order_id=%s | fill=$%s | status=%s",
+        symbol, qty, order_id, fill_price, entry_status,
     )
 
     # Step 2: Attach trailing stop immediately

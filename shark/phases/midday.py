@@ -1,5 +1,4 @@
 import logging
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +12,8 @@ from shark.execution.exit_manager import evaluate_exits, compute_dynamic_stop, c
 from shark.agents.trade_reviewer import review_closed_trade, save_lesson
 from shark.memory import handoff, state
 from shark.memory.journal import log_trade
+from shark.signals.distributor import send_email_digest
+from shark.signals.templates import alert_html
 
 logger = logging.getLogger(__name__)
 
@@ -252,21 +253,22 @@ def run(dry_run: bool = False) -> bool:
 
     if actions_taken:
         summary = "; ".join(actions_taken)
-        subject = f"Shark Midday Alert {today}"
-        body = (
-            f"Midday scan on {today} [regime={regime_str}]: {summary}. "
-            f"Positions closed: {len(cut_symbols)}. "
-            f"Stops tightened: {len(stop_actions)}. "
-            f"Thesis breaks: {len(thesis_break_symbols)}."
-        )
         try:
-            subprocess.run(
-                ["bash", "scripts/notify.sh", subject, body],
-                cwd=PROJECT_ROOT,
-                check=True,
+            body_html = alert_html(
+                title=f"Midday Scan — {today} · Regime: {regime_str}",
+                message=(
+                    f"Positions closed: {len(cut_symbols)} · "
+                    f"Stops tightened: {len(stop_actions)} · "
+                    f"Thesis breaks: {len(thesis_break_symbols)}\n\n{summary}"
+                ),
+                severity="danger" if cut_symbols else "warning",
+            )
+            send_email_digest(
+                subject=f"Shark Midday Alert — {today} · {len(cut_symbols)} exits",
+                body_html=body_html,
             )
         except Exception:
-            logger.exception("notify.sh failed")
+            logger.exception("Midday email failed")
 
     actions_summary = "; ".join(actions_taken) if actions_taken else "no actions"
 

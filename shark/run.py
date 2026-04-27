@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import logging
+import logging.handlers
 import os
 import subprocess
 import sys
@@ -61,7 +62,11 @@ _LOG_FILE = Path(__file__).resolve().parents[1] / "memory" / "error.log"
 logger = logging.getLogger(__name__)
 
 # Phases that require Alpaca credentials and live API access
-_TRADING_PHASES = {"market-open", "midday", "pre-execute", "daily-summary"}
+# Every phase that touches Alpaca (account, positions, bars, orders)
+_TRADING_PHASES = {
+    "pre-market", "pre-execute", "market-open",
+    "midday", "daily-summary", "weekly-review", "backtest",
+}
 
 _CRITICAL_PACKAGES = {
     "alpaca": "alpaca-py",
@@ -127,7 +132,9 @@ def _setup_logging() -> None:
     logging.basicConfig(level=logging.INFO, format=fmt, stream=sys.stdout)
 
     _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    file_handler = logging.FileHandler(_LOG_FILE, mode="a", encoding="utf-8")
+    file_handler = logging.handlers.RotatingFileHandler(
+        _LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8",
+    )
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter(fmt))
     logging.getLogger().addHandler(file_handler)
@@ -223,4 +230,5 @@ def main() -> None:
         sys.exit(1)
 
 
-main()
+if __name__ == "__main__":
+    main()
