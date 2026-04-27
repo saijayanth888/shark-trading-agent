@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from shark.data.alpaca_data import get_bars
+from shark.data.watchlist import get_core_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -98,11 +99,9 @@ class HistoricalDataLoader:
 
 
 def get_default_symbols() -> list[str]:
-    """Return the default watchlist from TRADING-STRATEGY.md."""
-    return [
-        "NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMD", "AVGO",
-        "JPM", "GS", "MS",
-        "UNH", "LLY", "JNJ",
-        "XOM", "CVX",
-        "AMZN", "TSLA",
-    ]
+    """Return the default watchlist from TRADING-STRATEGY.md.
+
+    Uses the unified watchlist module (core tickers only — dynamic tickers
+    are excluded from backtests for consistency).
+    """
+    return get_core_watchlist()

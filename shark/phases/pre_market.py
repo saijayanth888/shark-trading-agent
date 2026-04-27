@@ -10,6 +10,7 @@ from shark.data.perplexity import fetch_market_intel
 from shark.data.market_regime import detect_regime
 from shark.data.relative_strength import compute_relative_strength
 from shark.data.macro_calendar import check_macro_calendar
+from shark.data.watchlist import get_full_watchlist
 from shark.agents.trade_reviewer import get_recent_lessons, get_pattern_stats
 from shark.memory.journal import log_research
 from shark.memory import handoff, state
@@ -20,35 +21,7 @@ _RESEARCH_LOG = Path(__file__).resolve().parents[2] / "memory" / "RESEARCH-LOG.m
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_WATCHLIST = ["NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMD", "PLTR", "TSLA"]
-_STRATEGY_PATH = Path(__file__).resolve().parents[2] / "memory" / "TRADING-STRATEGY.md"
 _NOTIFY_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "notify.sh"
-
-
-def _read_watchlist() -> list[str]:
-    try:
-        text = _STRATEGY_PATH.read_text()
-    except OSError:
-        logger.warning("Could not read TRADING-STRATEGY.md — using default watchlist")
-        return _DEFAULT_WATCHLIST
-
-    tickers: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        # Matches "- TICKER" or "- TICKER, TICKER2" (comma-separated on one line)
-        bullet = re.match(r"^-\s+([A-Z]{1,5}(?:,\s*[A-Z]{1,5})*)", stripped)
-        if bullet:
-            for t in re.findall(r"[A-Z]{1,5}", bullet.group(1)):
-                tickers.append(t)
-            continue
-        # Matches "| TICKER |" table rows
-        table = re.match(r"^\|\s*([A-Z]{1,5})\s*\|", stripped)
-        if table:
-            tickers.append(table.group(1))
-
-    seen: set[str] = set()
-    unique = [t for t in tickers if not (t in seen or seen.add(t))]
-    return unique if unique else _DEFAULT_WATCHLIST
 
 
 def _score(intel: dict, rs_data: dict | None = None, regime_str: str = "") -> int:
@@ -174,7 +147,7 @@ def run(dry_run: bool = False) -> bool:
     if recent_lessons:
         logger.info("Recent lessons loaded: %d", len(recent_lessons))
 
-    watchlist = _read_watchlist()
+    watchlist = get_full_watchlist()
     logger.info("watchlist: %s", watchlist)
 
     account = get_account()

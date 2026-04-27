@@ -5,6 +5,7 @@ from pathlib import Path
 
 from shark.data.alpaca_data import get_account, get_positions
 from shark.data.perplexity import fetch_market_intel
+from shark.data.watchlist_discovery import run_discovery_cycle
 from shark.memory import handoff, state
 from shark.memory.journal import write_weekly_review
 from shark.signals.distributor import send_email_digest
@@ -291,5 +292,35 @@ def run(dry_run: bool = False) -> bool:
     except Exception:
         logger.exception("commit_memory raised an exception")
         return False
+
+    # === WATCHLIST DISCOVERY — find new tickers for next week ===
+    try:
+        if not dry_run:
+            discovery_context = (
+                f"Week return: {week_return_pct:+.2f}%, "
+                f"Alpha vs SPY: {alpha:+.2f}%, "
+                f"Grade: {grade}, "
+                f"Regime context: portfolio ${current_equity:,.0f}"
+            )
+            new_tickers = run_discovery_cycle(
+                market_context=discovery_context,
+                count=8,
+            )
+            if new_tickers:
+                new_symbols = [t["symbol"] for t in new_tickers]
+                logger.info(
+                    "Weekly discovery: added %d tickers — %s",
+                    len(new_tickers), new_symbols,
+                )
+                # Re-commit to include DYNAMIC-WATCHLIST.md
+                state.commit_memory(
+                    f"weekly discovery {today}: added {','.join(new_symbols)}"
+                )
+            else:
+                logger.info("Weekly discovery: no new tickers found")
+        else:
+            logger.info("dry_run — skipping watchlist discovery")
+    except Exception:
+        logger.exception("Watchlist discovery failed — non-fatal, continuing")
 
     return True

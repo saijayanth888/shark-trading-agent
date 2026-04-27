@@ -31,21 +31,33 @@ Current mode: PAPER TRADING (minimum 4 weeks before going live)
 8. **Confirmation**: Perplexity sentiment bullish, no major headline risks within 48h
 9. **No earnings**: block entry if earnings within 2 trading days
 
-## Watchlist — Core Tickers
-### Technology (primary focus)
+## Watchlist — Tiered System
+
+### Tier 1: Core Tickers (always scanned daily)
+
+#### Technology (primary focus)
 - NVDA, MSFT, AAPL, GOOGL, META, AMD, AVGO
 
-### Financials
+#### Financials
 - JPM, GS, MS
 
-### Healthcare (defensive rotation)
+#### Healthcare (defensive rotation)
 - UNH, LLY, JNJ
 
-### Energy (catalyst-driven only)
+#### Energy (catalyst-driven only)
 - XOM, CVX
 
-### Consumer Discretionary
+#### Consumer Discretionary
 - AMZN, TSLA
+
+### Tier 2: Dynamic Tickers (LLM-discovered weekly)
+- Stored in `memory/DYNAMIC-WATCHLIST.md` (auto-managed, do not edit manually)
+- Discovered weekly during `weekly-review` phase via Perplexity Sonar-Pro
+- Max 10 dynamic tickers at any time
+- Entries expire after 14 days if not traded
+- Guardrails: market cap ≥ $10B, avg volume ≥ 1M shares, must map to tracked sector
+- Dynamic tickers go through the same scoring/filtering pipeline as core tickers
+- Excluded from backtests for consistency
 
 ## Sector Failure Tracking
 - Track consecutive failed trades per sector

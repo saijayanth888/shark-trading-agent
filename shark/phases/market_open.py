@@ -12,6 +12,7 @@ from shark.data.perplexity import fetch_market_intel
 from shark.data.market_regime import detect_regime
 from shark.data.relative_strength import compute_relative_strength
 from shark.data.macro_calendar import check_macro_calendar
+from shark.data.watchlist import get_ticker_sector, SECTOR_ETFS
 from shark.execution.guardrails import Guardrails
 from shark.execution.position_sizer import compute_position_size, compute_partial_exit_plan
 from shark.agents.combined_analyst import analyze_symbol
@@ -33,33 +34,13 @@ _DECISIONS_FILE = Path(_REPO_ROOT) / "memory" / "market-open-decisions.json"
 MAX_TRADES_PER_RUN = 3
 _EARNINGS_BLOCK_DAYS = 2
 
-_TICKER_SECTOR: dict[str, str] = {
-    "NVDA": "Technology", "MSFT": "Technology", "AAPL": "Technology",
-    "GOOGL": "Technology", "META": "Technology", "AMD": "Technology",
-    "AVGO": "Technology", "PLTR": "Technology",
-    "JPM": "Financials", "GS": "Financials", "MS": "Financials",
-    "UNH": "Healthcare", "LLY": "Healthcare", "JNJ": "Healthcare",
-    "XOM": "Energy", "CVX": "Energy",
-    "AMZN": "Consumer Discretionary", "TSLA": "Consumer Discretionary",
-}
-
-_SECTOR_ETFS: dict[str, str] = {
-    "Technology": "XLK",
-    "Financials": "XLF",
-    "Healthcare": "XLV",
-    "Energy": "XLE",
-    "Consumer Discretionary": "XLY",
-    "Communication Services": "XLC",
-    "Industrials": "XLI",
-    "Materials": "XLB",
-    "Utilities": "XLU",
-    "Real Estate": "XLRE",
-    "Consumer Staples": "XLP",
-}
+# Sector mappings now live in shark.data.watchlist (single source of truth)
+# _TICKER_SECTOR → use get_ticker_sector(symbol)
+# _SECTOR_ETFS → imported directly
 
 
 def _check_sector_momentum(sector: str) -> tuple[bool, str]:
-    etf = _SECTOR_ETFS.get(sector)
+    etf = SECTOR_ETFS.get(sector)
     if not etf:
         return True, f"no ETF mapped for sector '{sector}' — skipping momentum check"
     try:
@@ -189,7 +170,7 @@ def _collect_candidate_data(
             logger.info("%s skipped — catalyst already priced in", symbol)
             return None
 
-        sector = _TICKER_SECTOR.get(symbol, "Technology")
+        sector = get_ticker_sector(symbol)
         sector_ok, sector_reason = _check_sector_momentum(sector)
         if not sector_ok:
             logger.info("%s skipped — %s", symbol, sector_reason)
