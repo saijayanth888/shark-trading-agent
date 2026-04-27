@@ -37,3 +37,10 @@ cash: $100,000.00
 day_pnl: +0.00%
 open_positions: 0
 circuit_breaker: OK
+
+## daily-summary | 23:28 EDT
+equity: $100,000.00
+cash: $100,000.00
+day_pnl: +0.00%
+open_positions: 0
+circuit_breaker: OK
