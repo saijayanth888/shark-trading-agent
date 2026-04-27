@@ -144,14 +144,32 @@ def _sync_repo() -> None:
     """Pull latest main so cloud containers pick up memory from previous routines."""
     repo_root = Path(__file__).resolve().parents[1]
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["git", "pull", "--rebase", "origin", "main"],
             cwd=str(repo_root),
             capture_output=True,
             text=True,
             timeout=60,
         )
-        logger.info("git pull --rebase completed")
+        if result.returncode == 0:
+            logger.info("git pull --rebase completed")
+        else:
+            # Rebase conflict on pull — abort and retry with merge (accept remote)
+            logger.warning("git pull --rebase conflict — aborting and retrying with merge")
+            subprocess.run(
+                ["git", "rebase", "--abort"],
+                cwd=str(repo_root),
+                capture_output=True, text=True, timeout=30,
+            )
+            merge = subprocess.run(
+                ["git", "pull", "--no-rebase", "-X", "theirs", "origin", "main"],
+                cwd=str(repo_root),
+                capture_output=True, text=True, timeout=60,
+            )
+            if merge.returncode == 0:
+                logger.info("git pull merge completed (conflict auto-resolved)")
+            else:
+                logger.warning("git pull merge also failed: %s", merge.stderr[:200])
     except Exception as exc:
         logger.warning("git sync skipped: %s", exc)
 

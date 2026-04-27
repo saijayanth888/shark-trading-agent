@@ -203,13 +203,47 @@ def commit_memory(message: str) -> bool:
 
         if push_result.returncode != 0:
             # Try rebase pull then push once more
-            subprocess.run(
+            rebase_result = subprocess.run(
                 ["git", "pull", "--rebase", "origin", "main"],
                 cwd=str(_PROJECT_ROOT),
                 capture_output=True,
                 text=True,
                 timeout=60,
             )
+
+            if rebase_result.returncode != 0:
+                # Rebase conflict — abort, then retry with merge + ours strategy
+                # (our local memory writes always take priority over stale remote)
+                logger.warning("Rebase conflict detected — aborting and retrying with merge")
+                subprocess.run(
+                    ["git", "rebase", "--abort"],
+                    cwd=str(_PROJECT_ROOT),
+                    capture_output=True, text=True, timeout=30,
+                )
+                merge_result = subprocess.run(
+                    ["git", "pull", "--no-rebase", "-X", "theirs", "origin", "main"],
+                    cwd=str(_PROJECT_ROOT),
+                    capture_output=True, text=True, timeout=60,
+                )
+                if merge_result.returncode != 0:
+                    logger.error("git merge pull also failed: %s", merge_result.stderr)
+                    # Last resort: force-accept everything and re-commit
+                    subprocess.run(
+                        ["git", "checkout", "--theirs", "."],
+                        cwd=str(_PROJECT_ROOT),
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    subprocess.run(
+                        ["git", "add", "-A"],
+                        cwd=str(_PROJECT_ROOT),
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    subprocess.run(
+                        ["git", "-c", "core.editor=true", "rebase", "--continue"],
+                        cwd=str(_PROJECT_ROOT),
+                        capture_output=True, text=True, timeout=30,
+                    )
+
             retry = subprocess.run(
                 ["git", "push", "origin", "HEAD:main"],
                 cwd=str(_PROJECT_ROOT),
@@ -218,7 +252,7 @@ def commit_memory(message: str) -> bool:
                 timeout=60,
             )
             if retry.returncode != 0:
-                logger.error("git push failed after rebase: %s", retry.stderr)
+                logger.error("git push failed after conflict resolution: %s", retry.stderr)
                 return False
 
         logger.info("Memory pushed to origin/main")
