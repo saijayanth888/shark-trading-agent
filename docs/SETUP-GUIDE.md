@@ -10,8 +10,7 @@ Complete guide to get Shark running as cloud routines on Claude Code.
 2. **Claude GitHub App** — Install on this repo at [github.com/apps/claude](https://github.com/apps/claude)
 3. **Alpaca account** — Paper or live at [alpaca.markets](https://alpaca.markets)
 4. **Perplexity API key** — For market research at [perplexity.ai](https://perplexity.ai)
-5. **Anthropic API key** — For Claude brain at [console.anthropic.com](https://console.anthropic.com)
-6. **Gmail App Password** — For email alerts at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+5. **Gmail App Password** — For email alerts at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
 
 ---
 
@@ -27,7 +26,6 @@ Every routine needs these environment variables set **directly on the routine co
 | `ALPACA_SECRET_KEY` | `abc123...` | Alpaca secret key |
 | `ALPACA_BASE_URL` | `https://paper-api.alpaca.markets` | Paper trading URL |
 | `PERPLEXITY_API_KEY` | `pplx-...` | Perplexity API key |
-| `ANTHROPIC_API_KEY` | `sk-ant-...` | Anthropic API key |
 | `GMAIL_APP_PASSWORD` | `abcd efgh ijkl mnop` | Gmail app-specific password |
 | `NOTIFY_EMAIL` | `you@gmail.com` | Where alerts get sent |
 | `NOTIFY_FROM_EMAIL` | `you@gmail.com` | Sending Gmail address |
@@ -37,7 +35,8 @@ Every routine needs these environment variables set **directly on the routine co
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Claude model to use |
+| `ANTHROPIC_API_KEY` | *(not set)* | **Not needed for cloud routines** — Claude IS the brain. Only for local dev `_run_full` mode |
+| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Claude model to use (only relevant if ANTHROPIC_API_KEY is set) |
 | `RISK_PER_TRADE_PCT` | `1.0` | Risk per trade as % of portfolio |
 | `ATR_STOP_MULTIPLE` | `2.0` | Stop distance in ATR units |
 | `MAX_POSITION_PCT` | `20.0` | Max single position size % |

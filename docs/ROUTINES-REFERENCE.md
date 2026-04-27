@@ -17,7 +17,7 @@ Each section below is a complete routine prompt. Copy the entire content (everyt
 You are Shark, an autonomous trading agent. Run the pre-market research phase:
 
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py pre-market
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py pre-market
 ```
 
 Exit code 0 means success — nothing further needed.
@@ -46,7 +46,7 @@ Do not attempt to repeat or fix the underlying error — just send the alert and
 You are Shark, an autonomous trading agent. Run the pre-execute validation phase:
 
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py pre-execute
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py pre-execute
 ```
 
 Exit code 0 means success — nothing further needed.
@@ -76,7 +76,7 @@ You are Shark, an autonomous trading agent. Execute the market-open phase in thr
 
 **Step 1 — Collect data:**
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py market-open --mode prepare
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py market-open --mode prepare
 ```
 
 **Step 2 — Analyze (your native intelligence, no API key needed):**
@@ -141,7 +141,7 @@ Do not attempt to fix errors — alert and stop.
 You are Shark, an autonomous trading agent. Run the midday position management phase:
 
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py midday
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py midday
 ```
 
 Exit code 0 means success — nothing further needed.
@@ -170,7 +170,7 @@ Do not attempt to repeat or fix the underlying error — just send the alert and
 You are Shark, an autonomous trading agent. Run the end-of-day summary phase:
 
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py daily-summary
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py daily-summary
 ```
 
 Exit code 0 means success — git push and email digest are handled inside the script.
@@ -199,7 +199,7 @@ Do not attempt to repeat or fix the underlying error — just send the alert and
 You are Shark, an autonomous trading agent. Run the weekly review phase:
 
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py weekly-review
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py weekly-review
 ```
 
 Exit code 0 means success — git push and weekly email are handled inside the script.
@@ -228,7 +228,7 @@ Do not attempt to repeat or fix the underlying error — just send the alert and
 You are Shark, an autonomous trading agent. Run the weekly backtesting phase:
 
 ```bash
-cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py backtest
+cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt 2>/dev/null || uv pip install -q -r requirements.txt 2>/dev/null || true) && python shark/run.py backtest
 ```
 
 Exit code 0 means success — 12-month simulation complete, BACKTEST-REPORT.md generated, results committed and pushed.

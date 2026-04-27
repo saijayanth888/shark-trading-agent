@@ -30,12 +30,21 @@ def _get_existing_trail_pct(api: Any, symbol: str) -> float | None:
     Returns the trail_percent as a float, or None if no trailing stop is found.
     """
     try:
-        orders = api.list_orders(status="open", limit=200)
+        from alpaca.trading.requests import GetOrdersRequest  # type: ignore[import]
+        from alpaca.trading.enums import QueryOrderStatus  # type: ignore[import]
+
+        orders = api.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=200)
+        )
         for order in orders:
+            order_type = getattr(order, "type", None)
+            order_side = getattr(order, "side", None)
+            type_val = order_type.value if hasattr(order_type, "value") else str(order_type or "")
+            side_val = order_side.value if hasattr(order_side, "value") else str(order_side or "")
             if (
                 order.symbol == symbol
-                and order.type == "trailing_stop"
-                and order.side == "sell"
+                and type_val == "trailing_stop"
+                and side_val == "sell"
             ):
                 trail_pct = getattr(order, "trail_percent", None)
                 if trail_pct is not None:

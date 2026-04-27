@@ -1,8 +1,8 @@
 """
 shark/data/alpaca_data.py
 --------------------------
-Thin wrappers around the Alpaca Trade API for account info, positions,
-historical OHLCV bars, and live quotes.
+Thin wrappers around the Alpaca Python SDK (alpaca-py) for account info,
+positions, historical OHLCV bars, and live quotes.
 
 Environment variables required
 -------------------------------
@@ -10,7 +10,7 @@ ALPACA_API_KEY      – Alpaca public key
 ALPACA_SECRET_KEY   – Alpaca secret key
 ALPACA_BASE_URL     – (optional) defaults to https://paper-api.alpaca.markets
 
-The REST client is initialised lazily — module import will not raise even if
+Clients are initialised lazily — module import will not raise even if
 the environment variables are absent; the error is deferred until the first
 function call.
 """
@@ -29,27 +29,22 @@ logger = logging.getLogger(__name__)
 # Lazy client initialisation
 # ---------------------------------------------------------------------------
 
-_rest_client: Any = None  # alpaca_trade_api.REST instance
+_trading_client: Any = None   # alpaca.trading.client.TradingClient
+_data_client: Any = None      # alpaca.data.historical.StockHistoricalDataClient
 
 
-def _get_client() -> Any:
-    """Return (and lazily create) the Alpaca REST client.
+def _enum_val(v: Any) -> str:
+    """Extract string value from an alpaca-py enum or passthrough."""
+    return v.value if hasattr(v, "value") else str(v or "")
 
-    Raises
-    ------
-    EnvironmentError
-        If ``ALPACA_API_KEY`` or ``ALPACA_SECRET_KEY`` are not set.
-    """
-    global _rest_client
-    if _rest_client is not None:
-        return _rest_client
 
-    api_key = os.environ.get("ALPACA_API_KEY")
-    secret_key = os.environ.get("ALPACA_SECRET_KEY")
+def _get_api_keys() -> tuple[str, str, str]:
+    """Return (api_key, secret_key, base_url) or raise EnvironmentError."""
+    api_key = os.environ.get("ALPACA_API_KEY", "")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
     base_url = os.environ.get(
         "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
     )
-
     if not api_key:
         raise EnvironmentError(
             "ALPACA_API_KEY environment variable is not set. "
@@ -60,36 +55,82 @@ def _get_client() -> Any:
             "ALPACA_SECRET_KEY environment variable is not set. "
             "Set it to your Alpaca secret key before calling any data function."
         )
+    return api_key, secret_key, base_url
+
+
+def _get_trading_client() -> Any:
+    """Return (and lazily create) the Alpaca TradingClient."""
+    global _trading_client
+    if _trading_client is not None:
+        return _trading_client
+
+    api_key, secret_key, base_url = _get_api_keys()
 
     try:
-        import alpaca_trade_api as tradeapi  # type: ignore[import]
+        from alpaca.trading.client import TradingClient  # type: ignore[import]
     except ImportError as exc:
         raise ImportError(
-            "alpaca-trade-api is not installed. "
-            "Run: pip install alpaca-trade-api"
+            "alpaca-py is not installed. Run: pip install alpaca-py"
         ) from exc
 
-    _rest_client = tradeapi.REST(
-        key_id=api_key,
+    paper = "paper" in base_url.lower()
+    _trading_client = TradingClient(
+        api_key=api_key,
         secret_key=secret_key,
-        base_url=base_url,
-        api_version="v2",
+        paper=paper,
     )
-    logger.debug("Alpaca REST client initialised (base_url=%s)", base_url)
-    return _rest_client
+    logger.debug("Alpaca TradingClient initialised (paper=%s)", paper)
+    return _trading_client
+
+
+def _get_data_client() -> Any:
+    """Return (and lazily create) the Alpaca StockHistoricalDataClient."""
+    global _data_client
+    if _data_client is not None:
+        return _data_client
+
+    api_key, secret_key, _ = _get_api_keys()
+
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient  # type: ignore[import]
+    except ImportError as exc:
+        raise ImportError(
+            "alpaca-py is not installed. Run: pip install alpaca-py"
+        ) from exc
+
+    _data_client = StockHistoricalDataClient(
+        api_key=api_key,
+        secret_key=secret_key,
+    )
+    logger.debug("Alpaca StockHistoricalDataClient initialised")
+    return _data_client
 
 
 # ---------------------------------------------------------------------------
 # Timeframe mapping
 # ---------------------------------------------------------------------------
 
-_TIMEFRAME_MAP: dict[str, str] = {
-    "1Min": "1Min",
-    "5Min": "5Min",
-    "15Min": "15Min",
-    "1Hour": "1Hour",
-    "1Day": "1Day",
-}
+_SUPPORTED_TIMEFRAMES = {"1Min", "5Min", "15Min", "1Hour", "1Day"}
+
+
+def _resolve_timeframe(tf_str: str) -> Any:
+    """Map user-facing timeframe string to an alpaca-py TimeFrame object."""
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit  # type: ignore[import]
+
+    _map = {
+        "1Min": TimeFrame.Minute,
+        "5Min": TimeFrame(5, TimeFrameUnit.Minute),
+        "15Min": TimeFrame(15, TimeFrameUnit.Minute),
+        "1Hour": TimeFrame.Hour,
+        "1Day": TimeFrame.Day,
+    }
+    tf = _map.get(tf_str)
+    if tf is None:
+        raise ValueError(
+            f"Unsupported timeframe '{tf_str}'. "
+            f"Choose from: {sorted(_SUPPORTED_TIMEFRAMES)}"
+        )
+    return tf
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +153,8 @@ def get_account() -> dict[str, Any]:
     EnvironmentError
         If API keys are missing.
     """
-    api = _get_client()
-    acct = api.get_account()
+    client = _get_trading_client()
+    acct = client.get_account()
 
     return {
         "equity": float(acct.equity),
@@ -141,10 +182,10 @@ def get_positions() -> list[dict[str, Any]]:
     EnvironmentError
         If API keys are missing.
     """
-    api = _get_client()
+    client = _get_trading_client()
 
     try:
-        positions = api.list_positions()
+        positions = client.get_all_positions()
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to fetch positions: %s", exc)
         return []
@@ -160,7 +201,7 @@ def get_positions() -> list[dict[str, Any]]:
                 "unrealized_pl": float(pos.unrealized_pl),
                 "unrealized_plpc": float(pos.unrealized_plpc),
                 "market_value": float(pos.market_value),
-                "side": pos.side,
+                "side": _enum_val(pos.side),
             }
         )
 
@@ -198,29 +239,28 @@ def get_bars(
     EnvironmentError
         If API keys are missing.
     """
-    if timeframe not in _TIMEFRAME_MAP:
-        raise ValueError(
-            f"Unsupported timeframe '{timeframe}'. "
-            f"Choose from: {list(_TIMEFRAME_MAP)}"
-        )
+    tf = _resolve_timeframe(timeframe)
+    client = _get_data_client()
 
-    api = _get_client()
+    from alpaca.data.requests import StockBarsRequest  # type: ignore[import]
 
-    # The alpaca-trade-api library's get_bars() method accepts the timeframe
-    # as a string and a limit parameter.
-    bars = api.get_bars(
-        symbol,
-        _TIMEFRAME_MAP[timeframe],
+    request = StockBarsRequest(
+        symbol_or_symbols=symbol,
+        timeframe=tf,
         limit=limit,
-        adjustment="raw",
-    ).df
+    )
+    bars_response = client.get_stock_bars(request)
+    bars = bars_response.df
 
     if bars.empty:
         logger.warning("No bars returned for symbol=%s timeframe=%s", symbol, timeframe)
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-    # The library returns a DataFrame whose index is a DatetimeIndex named 't'.
-    # Normalise it to a plain column.
+    # alpaca-py returns a multi-index DataFrame (symbol, timestamp).
+    # For a single symbol, drop the symbol level.
+    if isinstance(bars.index, pd.MultiIndex):
+        bars = bars.droplevel(0)
+
     bars = bars.reset_index()
 
     # Rename columns to our standard schema
@@ -286,40 +326,48 @@ def get_watchlist_snapshot(tickers: list[str]) -> list[dict[str, Any]]:
     EnvironmentError
         If API keys are missing.
     """
-    api = _get_client()
+    client = _get_data_client()
     result: list[dict[str, Any]] = []
+
+    from alpaca.data.requests import StockSnapshotRequest  # type: ignore[import]
 
     for ticker in tickers:
         try:
-            snapshot = api.get_snapshot(ticker)
+            snapshots = client.get_stock_snapshot(
+                StockSnapshotRequest(symbol_or_symbols=ticker)
+            )
+            snapshot = snapshots.get(ticker) if isinstance(snapshots, dict) else snapshots
+            if snapshot is None:
+                logger.warning("No snapshot data for %s", ticker)
+                continue
 
             # latest_trade gives last_price
             last_price: float = float(
-                getattr(snapshot.latest_trade, "p", 0.0)
+                snapshot.latest_trade.price
                 if snapshot.latest_trade
                 else 0.0
             )
 
             # latest_quote gives bid / ask
             bid: float = float(
-                getattr(snapshot.latest_quote, "bp", 0.0)
+                snapshot.latest_quote.bid_price
                 if snapshot.latest_quote
                 else 0.0
             )
             ask: float = float(
-                getattr(snapshot.latest_quote, "ap", 0.0)
+                snapshot.latest_quote.ask_price
                 if snapshot.latest_quote
                 else 0.0
             )
 
             # daily_bar gives volume and change_pct
             daily_open: float = float(
-                getattr(snapshot.daily_bar, "o", 0.0)
+                snapshot.daily_bar.open
                 if snapshot.daily_bar
                 else 0.0
             )
             volume: float = float(
-                getattr(snapshot.daily_bar, "v", 0.0)
+                snapshot.daily_bar.volume
                 if snapshot.daily_bar
                 else 0.0
             )

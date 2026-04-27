@@ -1,5 +1,5 @@
 """
-Order Execution — Alpaca trading API wrappers.
+Order Execution — Alpaca Python SDK (alpaca-py) wrappers.
 
 Handles placing, tracking, and cancelling orders. All Alpaca credentials
 are read from environment variables.
@@ -13,39 +13,49 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Lazy Alpaca SDK import — deferred until first use so the module loads even
-# when alpaca-trade-api is not yet installed (e.g. during pip install phase).
+# Lazy Alpaca SDK client — deferred until first use so the module loads even
+# when alpaca-py is not yet installed (e.g. during pip install phase).
 # ---------------------------------------------------------------------------
 
-_tradeapi: Any = None
-_APIError: Any = None
+_trading_client: Any = None
 
 
-def _ensure_alpaca() -> None:
-    """Import alpaca_trade_api lazily on first use."""
-    global _tradeapi, _APIError
-    if _tradeapi is not None:
-        return
-    try:
-        import alpaca_trade_api as _mod  # type: ignore[import]
-        from alpaca_trade_api.rest import APIError as _err  # type: ignore[import]
-        _tradeapi = _mod
-        _APIError = _err
-    except ImportError as exc:
-        raise ImportError(
-            "alpaca-trade-api is not installed. Run: pip install alpaca-trade-api"
-        ) from exc
+def _enum_val(v: Any) -> str:
+    """Extract string value from an alpaca-py enum or passthrough."""
+    return v.value if hasattr(v, "value") else str(v or "")
 
 
 def _get_client() -> Any:
-    """Create an authenticated Alpaca REST client from environment variables."""
-    _ensure_alpaca()
+    """Return (or lazily create) an authenticated Alpaca TradingClient."""
+    global _trading_client
+    if _trading_client is not None:
+        return _trading_client
+
     api_key = os.environ.get("ALPACA_API_KEY", "")
     secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
     base_url = os.environ.get(
         "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
     )
-    return _tradeapi.REST(api_key, secret_key, base_url, api_version="v2")
+
+    if not api_key or not secret_key:
+        raise EnvironmentError(
+            "ALPACA_API_KEY and ALPACA_SECRET_KEY must be set."
+        )
+
+    try:
+        from alpaca.trading.client import TradingClient  # type: ignore[import]
+    except ImportError as exc:
+        raise ImportError(
+            "alpaca-py is not installed. Run: pip install alpaca-py"
+        ) from exc
+
+    paper = "paper" in base_url.lower()
+    _trading_client = TradingClient(
+        api_key=api_key,
+        secret_key=secret_key,
+        paper=paper,
+    )
+    return _trading_client
 
 
 # ---------------------------------------------------------------------------
@@ -55,11 +65,11 @@ def _get_client() -> Any:
 def _order_to_dict(order: Any) -> dict[str, Any]:
     """Normalize an Alpaca order object to a plain dict."""
     return {
-        "order_id": getattr(order, "id", None),
+        "order_id": str(getattr(order, "id", "") or ""),
         "symbol": getattr(order, "symbol", None),
-        "side": getattr(order, "side", None),
-        "qty": int(getattr(order, "qty", 0) or 0),
-        "status": getattr(order, "status", None),
+        "side": _enum_val(getattr(order, "side", "")),
+        "qty": int(float(getattr(order, "qty", 0) or 0)),
+        "status": _enum_val(getattr(order, "status", "")),
         "filled_price": (
             float(order.filled_avg_price)
             if getattr(order, "filled_avg_price", None)
@@ -94,16 +104,21 @@ def place_order(
     Raises:
         RuntimeError: If the Alpaca API returns an error.
     """
-    api = _get_client()
+    client = _get_client()
 
     try:
-        order = api.submit_order(
+        from alpaca.trading.requests import MarketOrderRequest  # type: ignore[import]
+        from alpaca.trading.enums import OrderSide, TimeInForce  # type: ignore[import]
+
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+
+        order_data = MarketOrderRequest(
             symbol=symbol,
             qty=qty,
-            side=side,
-            type=order_type,
-            time_in_force="day",
+            side=order_side,
+            time_in_force=TimeInForce.DAY,
         )
+        order = client.submit_order(order_data=order_data)
         result = _order_to_dict(order)
         logger.info(
             "Order placed — %s %s x%d | id=%s | status=%s",
@@ -128,8 +143,6 @@ def place_trailing_stop(
     """
     Place a trailing-stop sell order (Good-Till-Cancelled).
 
-    Alpaca requires trail_percent as a string (e.g. "10.0"), not a float.
-
     Args:
         symbol: Ticker symbol.
         qty: Number of shares to protect.
@@ -141,17 +154,20 @@ def place_trailing_stop(
     Raises:
         RuntimeError: If the Alpaca API returns an error.
     """
-    api = _get_client()
+    client = _get_client()
 
     try:
-        order = api.submit_order(
+        from alpaca.trading.requests import TrailingStopOrderRequest  # type: ignore[import]
+        from alpaca.trading.enums import OrderSide, TimeInForce  # type: ignore[import]
+
+        order_data = TrailingStopOrderRequest(
             symbol=symbol,
             qty=qty,
-            side="sell",
-            type="trailing_stop",
-            time_in_force="gtc",
-            trail_percent=str(trail_percent),  # Alpaca quirk: must be string
+            side=OrderSide.SELL,
+            time_in_force=TimeInForce.GTC,
+            trail_percent=trail_percent,
         )
+        order = client.submit_order(order_data=order_data)
         result = _order_to_dict(order)
         logger.info(
             "Trailing stop placed — %s x%d @ %.1f%% trail | id=%s | status=%s",
@@ -180,10 +196,10 @@ def cancel_order(order_id: str) -> bool:
     Returns:
         True if cancelled successfully, False if not found or already closed.
     """
-    api = _get_client()
+    client = _get_client()
 
     try:
-        api.cancel_order(order_id)
+        client.cancel_order_by_id(order_id)
         logger.info("Order cancelled — id=%s", order_id)
         return True
 
@@ -202,10 +218,15 @@ def cancel_all_orders() -> int:
     Returns:
         Number of orders successfully cancelled.
     """
-    api = _get_client()
+    client = _get_client()
 
     try:
-        open_orders = api.list_orders(status="open")
+        from alpaca.trading.requests import GetOrdersRequest  # type: ignore[import]
+        from alpaca.trading.enums import QueryOrderStatus  # type: ignore[import]
+
+        open_orders = client.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
+        )
         if not open_orders:
             logger.info("No open orders to cancel.")
             return 0
@@ -213,7 +234,7 @@ def cancel_all_orders() -> int:
         count = 0
         for order in open_orders:
             try:
-                api.cancel_order(order.id)
+                client.cancel_order_by_id(str(order.id))
                 count += 1
                 logger.info("Cancelled order %s (%s)", order.id, order.symbol)
             except Exception as exc:
@@ -242,23 +263,18 @@ def close_position(symbol: str) -> dict[str, Any]:
     Raises:
         RuntimeError: If the position cannot be closed.
     """
-    api = _get_client()
+    client = _get_client()
 
     try:
-        # Get current position to know the qty
-        position = api.get_position(symbol)
-        qty = int(position.qty)
+        # Get current position to compute realized P&L
+        position = client.get_open_position(symbol)
+        qty = int(float(position.qty))
         cost_basis = float(position.cost_basis or 0)
         market_value = float(position.market_value or 0)
         realized_pl = market_value - cost_basis
 
-        order = api.submit_order(
-            symbol=symbol,
-            qty=qty,
-            side="sell",
-            type="market",
-            time_in_force="day",
-        )
+        # Use the SDK's native close_position for reliability
+        order = client.close_position(symbol)
 
         result = _order_to_dict(order)
         result["realized_pl"] = realized_pl
@@ -288,9 +304,14 @@ def get_open_orders(side: str | None = None) -> list[dict[str, Any]]:
     Returns:
         List of order dicts with: order_id, symbol, side, qty, status.
     """
-    api = _get_client()
+    client = _get_client()
     try:
-        orders = api.list_orders(status="open")
+        from alpaca.trading.requests import GetOrdersRequest  # type: ignore[import]
+        from alpaca.trading.enums import QueryOrderStatus  # type: ignore[import]
+
+        orders = client.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)
+        )
         result = [_order_to_dict(o) for o in orders]
         if side:
             result = [o for o in result if o.get("side") == side]

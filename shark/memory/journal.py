@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Resolve memory dir relative to this file's project root
 # Project structure: shark-trading-agent/shark/memory/journal.py
 #                    shark-trading-agent/memory/
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]  # shark-trading-agent/
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]  # shark-trading-agent/
 _MEMORY_DIR = _PROJECT_ROOT / "memory"
 
 _TRADE_LOG_FILE = _MEMORY_DIR / "TRADE-LOG.md"

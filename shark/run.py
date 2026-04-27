@@ -31,6 +31,18 @@ if _req.exists():
         print(f"WARNING: pip install failed (exit {_pip_result.returncode})", file=sys.stderr)
         if _pip_result.stderr:
             print(_pip_result.stderr[:500], file=sys.stderr)
+        # Fallback: try uv pip install for uv-managed environments
+        _uv_result = subprocess.run(
+            ["uv", "pip", "install", "-q", "-r", str(_req)],
+            capture_output=True,
+            text=True,
+        )
+        if _uv_result.returncode != 0:
+            print("WARNING: uv pip install also failed", file=sys.stderr)
+            if _uv_result.stderr:
+                print(_uv_result.stderr[:500], file=sys.stderr)
+        else:
+            print("INFO: uv pip install succeeded (pip had failed)", file=sys.stderr)
 
 from shark.context.context_manager import generate_context_briefing, check_context_health
 
@@ -47,6 +59,54 @@ PHASES = {
 _LOG_FILE = Path(__file__).resolve().parents[1] / "memory" / "error.log"
 
 logger = logging.getLogger(__name__)
+
+# Phases that require Alpaca credentials and live API access
+_TRADING_PHASES = {"market-open", "midday", "pre-execute", "daily-summary"}
+
+_CRITICAL_PACKAGES = {
+    "alpaca": "alpaca-py",
+    "pandas": "pandas",
+    "numpy": "numpy",
+}
+
+
+def _verify_dependencies() -> bool:
+    """Verify critical packages are importable. Fails fast before any phase runs."""
+    missing = []
+    for module_name, pip_name in _CRITICAL_PACKAGES.items():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            missing.append(pip_name)
+
+    if missing:
+        logger.error(
+            "FATAL: Required packages not installed: %s — "
+            "pip install may have failed silently. "
+            "Run manually: pip install %s",
+            ", ".join(missing),
+            " ".join(missing),
+        )
+        return False
+    return True
+
+
+def _verify_env_vars(phase: str) -> bool:
+    """Verify required environment variables are set for trading phases."""
+    if phase not in _TRADING_PHASES:
+        return True
+
+    api_key = os.environ.get("ALPACA_API_KEY", "")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+
+    if not api_key or not secret_key:
+        logger.error(
+            "FATAL: ALPACA_API_KEY and ALPACA_SECRET_KEY must be set for phase '%s'. "
+            "Check .env file or cloud environment variable injection.",
+            phase,
+        )
+        return False
+    return True
 
 
 def _load_env() -> None:
@@ -127,6 +187,15 @@ def main() -> None:
 
     logger.info("=== shark run.py starting phase=%s dry_run=%s ===", args.phase, args.dry_run)
     _sync_repo()
+
+    # Pre-flight checks — fail fast before expensive phase execution
+    if not _verify_dependencies():
+        print("FATAL: Missing critical dependencies — cannot proceed.", file=sys.stderr)
+        sys.exit(1)
+
+    if not _verify_env_vars(args.phase):
+        print(f"FATAL: Missing environment variables for phase '{args.phase}'.", file=sys.stderr)
+        sys.exit(1)
 
     # Generate phase-specific context briefing BEFORE execution
     try:

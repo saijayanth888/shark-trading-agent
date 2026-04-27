@@ -14,7 +14,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]  # shark-trading-agent/
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]  # shark-trading-agent/
 _MEMORY_DIR = _PROJECT_ROOT / "memory"
 _CONTEXT_FILE = _MEMORY_DIR / "PROJECT-CONTEXT.md"
 _TRADE_LOG_FILE = _MEMORY_DIR / "TRADE-LOG.md"

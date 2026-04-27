@@ -13,7 +13,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _HANDOFF_FILE = _PROJECT_ROOT / "memory" / "DAILY-HANDOFF.md"
 
 
