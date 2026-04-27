@@ -47,7 +47,7 @@ cd /repo && python shark/run.py market-open --mode execute
 On any non-zero exit from Step 1 or Step 3:
 ```bash
 ERROR_LOG=$(tail -20 memory/error.log 2>/dev/null || echo "No error log found")
-bash scripts/notify.sh "Shark ERROR: market-open failed $(date +%Y-%m-%d)" "$ERROR_LOG"
+python scripts/notify_email.py "Shark ERROR: market-open failed $(date +%Y-%m-%d)" "$ERROR_LOG"
 ```
 
 Do not attempt to fix errors — alert and stop.

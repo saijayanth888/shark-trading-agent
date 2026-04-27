@@ -2,6 +2,7 @@
 .env
 *.env
 .env.*
+gcp-oauth.keys.json
 
 # Python
 __pycache__/

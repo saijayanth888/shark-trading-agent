@@ -1,7 +1,6 @@
 from __future__ import annotations
 import logging
 import re
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -15,13 +14,11 @@ from shark.agents.trade_reviewer import get_recent_lessons, get_pattern_stats
 from shark.memory.journal import log_research
 from shark.memory import handoff, state
 from shark.signals.distributor import send_email_digest
-from shark.signals.templates import premarket_briefing_html
+from shark.signals.templates import premarket_briefing_html, alert_html
 
 _RESEARCH_LOG = Path(__file__).resolve().parents[2] / "memory" / "RESEARCH-LOG.md"
 
 logger = logging.getLogger(__name__)
-
-_NOTIFY_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "notify.sh"
 
 
 def _score(intel: dict, rs_data: dict | None = None, regime_str: str = "") -> int:
@@ -78,13 +75,17 @@ def _notify_premarket_risk(symbol: str, plpc: float) -> None:
     message = f"URGENT: {symbol} is down {pct}% premarket — approaching -7% stop"
     logger.warning(message)
     try:
-        subprocess.run(
-            [str(_NOTIFY_SCRIPT), "PREMARKET_RISK", symbol, message],
-            timeout=15,
-            check=False,
+        html = alert_html(
+            title=f"Premarket Risk Alert — {symbol}",
+            message=message,
+            severity="danger",
+        )
+        send_email_digest(
+            subject=f"Shark PREMARKET RISK: {symbol} at {pct}%",
+            body_html=html,
         )
     except Exception as exc:
-        logger.error("notify.sh failed for %s: %s", symbol, exc)
+        logger.error("Premarket risk alert failed for %s: %s", symbol, exc)
 
 
 def _append_candidate_table(date_str: str, viable: list[tuple[int, str, dict]]) -> None:

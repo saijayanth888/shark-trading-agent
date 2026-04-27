@@ -10,7 +10,7 @@ On any non-zero exit, this is critical — the EOD snapshot may not have been sa
 
 ```bash
 ERROR_LOG=$(tail -20 memory/error.log 2>/dev/null || echo "No error log found")
-bash scripts/notify.sh "Shark CRITICAL: daily-summary failed $(date +%Y-%m-%d)" "$ERROR_LOG"
+python scripts/notify_email.py "Shark CRITICAL: daily-summary failed $(date +%Y-%m-%d)" "$ERROR_LOG"
 ```
 
 Do not attempt to repeat or fix the underlying error — just send the alert and stop.

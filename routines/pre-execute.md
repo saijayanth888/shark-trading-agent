@@ -10,7 +10,7 @@ On any non-zero exit, read the error and send an alert:
 
 ```bash
 ERROR_LOG=$(tail -20 memory/error.log 2>/dev/null || echo "No error log found")
-bash scripts/notify.sh "Shark ERROR: pre-execute failed $(date +%Y-%m-%d)" "$ERROR_LOG"
+python scripts/notify_email.py "Shark ERROR: pre-execute failed $(date +%Y-%m-%d)" "$ERROR_LOG"
 ```
 
 Do not attempt to repeat or fix the underlying error — just send the alert and stop.
