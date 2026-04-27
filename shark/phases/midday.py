@@ -7,7 +7,7 @@ from shark.data.alpaca_data import get_positions, get_bars
 from shark.data.perplexity import fetch_market_intel
 from shark.data.technical import compute_indicators
 from shark.data.market_regime import detect_regime
-from shark.execution.orders import close_position
+from shark.execution.orders import close_position, place_order
 from shark.execution.stops import manage_stops
 from shark.execution.exit_manager import evaluate_exits, compute_dynamic_stop, check_volatility_expansion
 from shark.agents.trade_reviewer import review_closed_trade, save_lesson
@@ -60,7 +60,7 @@ def run(dry_run: bool = False) -> bool:
             if exit_action == "CLOSE_ALL":
                 if not dry_run:
                     result = close_position(symbol)
-                    fill_price = result.get("fill_price")
+                    fill_price = result.get("filled_price")
                     qty = result.get("qty", qty_to_close)
                 else:
                     fill_price = next((p.get("current_price") for p in positions if p["symbol"] == symbol), 0)
@@ -93,8 +93,8 @@ def run(dry_run: bool = False) -> bool:
             elif exit_action == "PARTIAL_SELL":
                 tier = action.get("tier", 1)
                 if not dry_run:
-                    result = close_position(symbol, qty=qty_to_close)
-                    fill_price = result.get("fill_price")
+                    result = place_order(symbol, qty_to_close, "sell")
+                    fill_price = result.get("filled_price")
                 else:
                     fill_price = next((p.get("current_price") for p in positions if p["symbol"] == symbol), 0)
 
@@ -126,7 +126,7 @@ def run(dry_run: bool = False) -> bool:
             try:
                 if not dry_run:
                     result = close_position(symbol)
-                    fill_price = result.get("fill_price")
+                    fill_price = result.get("filled_price")
                     qty = result.get("qty", pos["qty"])
                 else:
                     fill_price = pos.get("current_price")
@@ -208,7 +208,7 @@ def run(dry_run: bool = False) -> bool:
 
                 if not dry_run:
                     result = close_position(symbol)
-                    fill_price = result.get("fill_price")
+                    fill_price = result.get("filled_price")
                     qty = result.get("qty", qty)
                 else:
                     fill_price = pos.get("current_price")

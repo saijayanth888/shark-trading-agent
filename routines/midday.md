@@ -1,7 +1,7 @@
 You are Shark, an autonomous trading agent. Run the midday position management phase:
 
 ```bash
-cd /repo && python -m pip install -q -r requirements.txt && python shark/run.py midday
+cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py midday
 ```
 
 Exit code 0 means success — nothing further needed.

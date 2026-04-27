@@ -10,23 +10,42 @@ import os
 import logging
 from typing import Any
 
-import alpaca_trade_api as tradeapi
-from alpaca_trade_api.rest import APIError
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Alpaca client factory
+# Lazy Alpaca SDK import — deferred until first use so the module loads even
+# when alpaca-trade-api is not yet installed (e.g. during pip install phase).
 # ---------------------------------------------------------------------------
 
-def _get_client() -> tradeapi.REST:
+_tradeapi: Any = None
+_APIError: Any = None
+
+
+def _ensure_alpaca() -> None:
+    """Import alpaca_trade_api lazily on first use."""
+    global _tradeapi, _APIError
+    if _tradeapi is not None:
+        return
+    try:
+        import alpaca_trade_api as _mod  # type: ignore[import]
+        from alpaca_trade_api.rest import APIError as _err  # type: ignore[import]
+        _tradeapi = _mod
+        _APIError = _err
+    except ImportError as exc:
+        raise ImportError(
+            "alpaca-trade-api is not installed. Run: pip install alpaca-trade-api"
+        ) from exc
+
+
+def _get_client() -> Any:
     """Create an authenticated Alpaca REST client from environment variables."""
+    _ensure_alpaca()
     api_key = os.environ.get("ALPACA_API_KEY", "")
     secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
     base_url = os.environ.get(
         "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
     )
-    return tradeapi.REST(api_key, secret_key, base_url, api_version="v2")
+    return _tradeapi.REST(api_key, secret_key, base_url, api_version="v2")
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +115,9 @@ def place_order(
         )
         return result
 
-    except APIError as exc:
-        logger.error("Alpaca APIError placing order for %s: %s", symbol, exc)
-        raise RuntimeError(f"Alpaca order failed for {symbol}: {exc}") from exc
-
     except Exception as exc:
-        logger.error("Unexpected error placing order for %s: %s", symbol, exc)
-        raise RuntimeError(f"Unexpected error placing order for {symbol}: {exc}") from exc
+        logger.error("Order failed for %s: %s", symbol, exc)
+        raise RuntimeError(f"Alpaca order failed for {symbol}: {exc}") from exc
 
 
 def place_trailing_stop(
@@ -148,20 +163,10 @@ def place_trailing_stop(
         )
         return result
 
-    except APIError as exc:
-        logger.error(
-            "Alpaca APIError placing trailing stop for %s: %s", symbol, exc
-        )
+    except Exception as exc:
+        logger.error("Trailing stop failed for %s: %s", symbol, exc)
         raise RuntimeError(
             f"Alpaca trailing stop failed for {symbol}: {exc}"
-        ) from exc
-
-    except Exception as exc:
-        logger.error(
-            "Unexpected error placing trailing stop for %s: %s", symbol, exc
-        )
-        raise RuntimeError(
-            f"Unexpected error placing trailing stop for {symbol}: {exc}"
         ) from exc
 
 
@@ -182,16 +187,11 @@ def cancel_order(order_id: str) -> bool:
         logger.info("Order cancelled — id=%s", order_id)
         return True
 
-    except APIError as exc:
-        # 422 = order not found or not cancellable
+    except Exception as exc:
         if "not found" in str(exc).lower() or "422" in str(exc):
             logger.warning("Order %s not found or already closed: %s", order_id, exc)
             return False
-        logger.error("APIError cancelling order %s: %s", order_id, exc)
-        return False
-
-    except Exception as exc:
-        logger.error("Unexpected error cancelling order %s: %s", order_id, exc)
+        logger.error("Error cancelling order %s: %s", order_id, exc)
         return False
 
 
@@ -216,7 +216,7 @@ def cancel_all_orders() -> int:
                 api.cancel_order(order.id)
                 count += 1
                 logger.info("Cancelled order %s (%s)", order.id, order.symbol)
-            except APIError as exc:
+            except Exception as exc:
                 logger.warning(
                     "Could not cancel order %s: %s", order.id, exc
                 )
@@ -224,12 +224,8 @@ def cancel_all_orders() -> int:
         logger.info("Cancelled %d/%d open orders.", count, len(open_orders))
         return count
 
-    except APIError as exc:
-        logger.error("APIError listing orders for cancellation: %s", exc)
-        return 0
-
     except Exception as exc:
-        logger.error("Unexpected error cancelling all orders: %s", exc)
+        logger.error("Error listing orders for cancellation: %s", exc)
         return 0
 
 
@@ -277,15 +273,9 @@ def close_position(symbol: str) -> dict[str, Any]:
         )
         return result
 
-    except APIError as exc:
-        logger.error("APIError closing position for %s: %s", symbol, exc)
-        raise RuntimeError(f"Could not close position for {symbol}: {exc}") from exc
-
     except Exception as exc:
-        logger.error("Unexpected error closing position for %s: %s", symbol, exc)
-        raise RuntimeError(
-            f"Unexpected error closing position for {symbol}: {exc}"
-        ) from exc
+        logger.error("Error closing position for %s: %s", symbol, exc)
+        raise RuntimeError(f"Could not close position for {symbol}: {exc}") from exc
 
 
 def get_open_orders(side: str | None = None) -> list[dict[str, Any]]:

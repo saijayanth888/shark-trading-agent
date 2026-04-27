@@ -10,9 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import alpaca_trade_api as tradeapi
-from alpaca_trade_api.rest import APIError
-
 from shark.execution.orders import _get_client, place_trailing_stop
 
 logger = logging.getLogger(__name__)
@@ -26,7 +23,7 @@ _DEFAULT_TRAIL = 10.0   # Default trailing stop %
 _MIN_TRAIL_PCT = 3.0
 
 
-def _get_existing_trail_pct(api: tradeapi.REST, symbol: str) -> float | None:
+def _get_existing_trail_pct(api: Any, symbol: str) -> float | None:
     """
     Find the current trailing stop percentage for an open GTC trailing-stop order.
 
@@ -43,7 +40,7 @@ def _get_existing_trail_pct(api: tradeapi.REST, symbol: str) -> float | None:
                 trail_pct = getattr(order, "trail_percent", None)
                 if trail_pct is not None:
                     return float(trail_pct)
-    except APIError as exc:
+    except Exception as exc:
         logger.warning("Could not fetch orders for %s stop check: %s", symbol, exc)
     return None
 

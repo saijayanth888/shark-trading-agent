@@ -15,7 +15,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # where `python -m pip install` in bash may target a different Python than the runner.
 _req = Path(__file__).resolve().parents[1] / "requirements.txt"
 if _req.exists():
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(_req)], check=False)
+    _pip_result = subprocess.run(
+        [
+            sys.executable, "-m", "pip", "install",
+            "-q",
+            "--no-cache-dir",
+            "--prefer-binary",
+            "--break-system-packages",
+            "-r", str(_req),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if _pip_result.returncode != 0:
+        print(f"WARNING: pip install failed (exit {_pip_result.returncode})", file=sys.stderr)
+        if _pip_result.stderr:
+            print(_pip_result.stderr[:500], file=sys.stderr)
 
 from shark.context.context_manager import generate_context_briefing, check_context_health
 

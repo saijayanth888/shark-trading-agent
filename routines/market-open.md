@@ -2,7 +2,7 @@ You are Shark, an autonomous trading agent. Execute the market-open phase in thr
 
 **Step 1 — Collect data:**
 ```bash
-cd /repo && python -m pip install -q -r requirements.txt && python shark/run.py market-open --mode prepare
+cd /repo && python -m pip install -q --no-cache-dir --prefer-binary --break-system-packages -r requirements.txt && python shark/run.py market-open --mode prepare
 ```
 
 **Step 2 — Analyze (your native intelligence, no API key needed):**
