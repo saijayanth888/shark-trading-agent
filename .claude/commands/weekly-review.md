@@ -1,55 +1,25 @@
 # /weekly-review — Weekly Performance Review
 
-Run Friday at 5:00 PM ET. Grade the week, update strategy, decide watchlist changes.
+Runs the Friday 5pm weekly review phase locally. Grades the week (A-F), computes alpha vs SPY, analyzes trade patterns, optionally adjusts strategy parameters, sends weekly digest email.
 
-## Steps
+## Run
 
-1. Read memory/TRADE-LOG.md — extract all trades from this week (Mon-Fri)
-2. Read memory/RESEARCH-LOG.md — extract all research from this week
-3. Read memory/TRADING-STRATEGY.md — current watchlist and sector allocations
-4. Get current account:
-   ```bash
-   bash scripts/alpaca.sh account
-   ```
+```bash
+python shark/run.py weekly-review
+```
 
-5. Calculate weekly stats:
-   - Trades placed: [N] (limit 3)
-   - Win rate: [wins]/[total] ([PCT]%)
-   - Total realized P&L: $[AMOUNT]
-   - Best trade: [TICKER] +[PCT]%
-   - Worst trade: [TICKER] -[PCT]%
-   - Portfolio vs S&P 500 this week (use Perplexity for SPY weekly return)
+Python handles everything: git pull → context briefing → P&L calculation → alpha vs SPY → pattern stats → WEEKLY-REVIEW.md → TRADING-STRATEGY.md update if mutation warranted → email → git commit + push.
 
-6. Grade the week: A (>5%), B (2-5%), C (0-2%), D (-2-0%), F (<-2%)
+## Dry Run (preview without writing memory or sending email)
 
-7. Strategy mutation check (only if grade <= C for 2 consecutive weeks):
-   - Is the core strategy broken or was this market conditions?
-   - Max one adjustment: sector rotation, watchlist refresh, or position sizing tweak
-   - Document the change and reason in TRADING-STRATEGY.md
+```bash
+python shark/run.py weekly-review --dry-run
+```
 
-8. Update memory/WEEKLY-REVIEW.md:
-   ```
-   ## Week of [DATE]
-   **Grade:** [LETTER] | **P&L:** $[AMOUNT] ([PCT]%)
-   **vs S&P:** [+/-PCT]pp alpha
-   **Trades:** [N] placed, [N] closed, [WIN_RATE]% win rate
-   **Top winner:** [TICKER] +[PCT]%
-   **Top loser:** [TICKER] -[PCT]%
-   **Strategy notes:** [one sentence on what worked/didn't]
-   **Next week focus:** [sectors/themes to watch]
-   ```
+## On Error
 
-9. Send email via Gmail connector (call Gmail MCP `create_draft` to build the draft, then immediately call `send_draft` with the returned draft ID to actually send it — do NOT stop at draft, do NOT use notify.sh in cloud):
-   - **to:** sharkwaveai@gmail.com
-   - **subject:** `Shark Weekly [DATE]: Grade [LETTER] | $[P&L] | vs SPY [ALPHA]pp`
-   - **body (HTML):** Dark-themed email:
-     - Header: grade, week P&L, alpha vs SPY
-     - Table: all trades this week — ticker, side, entry, exit, P&L $/%
-     - Open positions summary
-     - Strategy notes for next week
-   - Fallback if Gmail MCP unavailable: `bash scripts/notify.sh "Shark Weekly [DATE]: Grade [LETTER] | P&L $[AMOUNT] | vs SPY [ALPHA]pp"`
+```bash
+tail -30 memory/error.log
+```
 
-10. Git commit:
-    ```bash
-    git add memory/ && git commit -m "review: weekly [DATE] grade=[LETTER] pnl=[AMOUNT]" && git push origin HEAD:main
-    ```
+Review error log, fix root cause, re-run. Check that WEEKLY-REVIEW.md was written before next Monday.

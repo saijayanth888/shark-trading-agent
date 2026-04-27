@@ -41,7 +41,7 @@ def run(dry_run: bool = False) -> bool:
     starting_capital = float(os.environ.get("BACKTEST_CAPITAL", "100000"))
     lookback_days = int(os.environ.get("BACKTEST_LOOKBACK_DAYS", "365"))
     momentum_min = float(os.environ.get("BACKTEST_MOMENTUM_MIN", "40"))
-    rs_min = float(os.environ.get("BACKTEST_RS_MIN", "0"))
+    rs_min = float(os.environ.get("BACKTEST_RS_MIN", "1.0"))
     atr_stop_mult = float(os.environ.get("BACKTEST_ATR_STOP_MULT", "2.0"))
     risk_pct = float(os.environ.get("BACKTEST_RISK_PCT", "1.0"))
 

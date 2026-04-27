@@ -51,6 +51,7 @@ DO NOT read entire memory files. Context bloat degrades decision quality.
 6. Instrument is a stock (not an option, ETF, or crypto)
 7. Circuit breaker NOT triggered
 8. Sector has NOT had 2 consecutive failed trades
+9. RS composite > 1.0 (stock is outperforming SPY — Mansfield RS filter)
 
 ## Entry Checklist (document before placing)
 - What is the specific catalyst today?

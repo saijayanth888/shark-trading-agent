@@ -27,7 +27,7 @@ Approach: "Shark Signals" — trading income + subscription revenue combined.
 - Alpaca: Paper trading endpoint active
 - Perplexity: CONFIGURED (sonar-pro validated 2026-04-25)
 - Anthropic: [set ANTHROPIC_API_KEY in routine env vars]
-- SendGrid: [set SENDGRID_API_KEY and NOTIFY_EMAIL in routine env vars]
+- Gmail: [set GMAIL_APP_PASSWORD, NOTIFY_EMAIL, NOTIFY_FROM_EMAIL in routine env vars]
 
 ## Cloud Routines Status
 | Routine | Cron (ET) | Status |
@@ -38,6 +38,7 @@ Approach: "Shark Signals" — trading income + subscription revenue combined.
 | midday.md | 1:00 PM Mon-Fri | ACTIVE (Idle) |
 | daily-summary.md | 4:15 PM Mon-Fri | ACTIVE (Idle) |
 | weekly-review.md | 5:00 PM Fri | ACTIVE (Idle — next run May 1) |
+| backtest.md | 6:00 PM Fri | ACTIVE (Idle — next run May 1) |
 
 ## Sector Failure Tracking
 | Sector | Consecutive Failures | Status |

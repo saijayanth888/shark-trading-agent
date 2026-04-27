@@ -326,7 +326,7 @@ Generated automatically with:
 | `BACKTEST_CAPITAL` | 100000 | Starting capital for simulation |
 | `BACKTEST_LOOKBACK_DAYS` | 365 | How far back to test |
 | `BACKTEST_MOMENTUM_MIN` | 40 | Momentum score entry threshold |
-| `BACKTEST_RS_MIN` | 0 | Minimum RS composite for entry |
+| `BACKTEST_RS_MIN` | 1.0 | Minimum RS composite for entry (must outperform SPY) |
 | `BACKTEST_ATR_STOP_MULT` | 2.0 | ATR multiplier for stop distance |
 | `BACKTEST_RISK_PCT` | 1.0 | Risk per trade as % of portfolio |
 | `BACKTEST_SYMBOLS` | (full watchlist) | Comma-separated tickers to test |
@@ -570,7 +570,7 @@ TRADING_MODE=paper
 BACKTEST_CAPITAL=100000
 BACKTEST_LOOKBACK_DAYS=365
 BACKTEST_MOMENTUM_MIN=40
-BACKTEST_RS_MIN=0
+BACKTEST_RS_MIN=1.0
 BACKTEST_ATR_STOP_MULT=2.0
 BACKTEST_RISK_PCT=1.0
 ```
