@@ -16,10 +16,14 @@ import logging
 import os
 from typing import Any
 
+from datetime import date
+
 from shark.backtest.data_loader import get_default_symbols
 from shark.backtest.engine import run_backtest
 from shark.backtest.report import generate_report
 from shark.memory.state import commit_memory
+from shark.signals.distributor import send_email_digest
+from shark.signals.templates import backtest_results_html
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,27 @@ def run(dry_run: bool = False) -> bool:
             risk.get("max_drawdown_pct", 0),
             trade_stats.get("profit_factor", 0),
         )
+
+        # Send results email
+        try:
+            body_html = backtest_results_html(
+                date=date.today().isoformat(),
+                total_return_pct=summary.get("total_return_pct", 0),
+                total_trades=trade_stats.get("total_trades", 0),
+                win_rate_pct=trade_stats.get("win_rate_pct", 0),
+                sharpe_ratio=risk.get("sharpe_ratio", 0),
+                max_drawdown_pct=risk.get("max_drawdown_pct", 0),
+                profit_factor=trade_stats.get("profit_factor", 0),
+                alpha_vs_spy=summary.get("alpha_vs_spy"),
+                starting_capital=starting_capital,
+                ending_equity=summary.get("ending_equity"),
+            )
+            send_email_digest(
+                subject=f"Shark Backtest — {date.today().isoformat()} · {summary.get('total_return_pct', 0):+.1f}% return",
+                body_html=body_html,
+            )
+        except Exception:
+            logger.exception("Backtest results email failed")
 
         # Commit report to git
         try:

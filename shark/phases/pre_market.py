@@ -13,6 +13,8 @@ from shark.data.macro_calendar import check_macro_calendar
 from shark.agents.trade_reviewer import get_recent_lessons, get_pattern_stats
 from shark.memory.journal import log_research
 from shark.memory import handoff, state
+from shark.signals.distributor import send_email_digest
+from shark.signals.templates import premarket_briefing_html
 
 _RESEARCH_LOG = Path(__file__).resolve().parents[2] / "memory" / "RESEARCH-LOG.md"
 
@@ -281,6 +283,33 @@ def run(dry_run: bool = False) -> bool:
     else:
         logger.info("dry_run — skipping log_research and commit")
         logger.info("market_context=%s decision=%s viable=%s", market_context, decision, [t for _, t, _ in viable])
+
+    # === SEND MORNING BRIEFING EMAIL ===
+    try:
+        candidates_for_email = [
+            {"symbol": t, "score": s, "catalyst": "; ".join(info.get("catalysts", [])[:2]) or "—"}
+            for s, t, info in viable
+        ]
+        body_html = premarket_briefing_html(
+            date=today,
+            regime=regime_str,
+            macro_impact=macro_impact,
+            macro_desc=macro.get("description", ""),
+            candidates=candidates_for_email,
+            at_risk=at_risk,
+            watchlist_size=len(watchlist),
+            bullish_count=bullish_count,
+            bearish_count=bearish_count,
+            positions_count=len(positions),
+            lessons=recent_lessons[:3] if recent_lessons else None,
+        )
+        if not dry_run:
+            send_email_digest(
+                subject=f"Shark Morning Briefing — {today} · {regime_str} · {len(viable)} candidates",
+                body_html=body_html,
+            )
+    except Exception:
+        logger.exception("Morning briefing email failed")
 
     logger.info("pre-market phase complete — %s", decision)
     return True

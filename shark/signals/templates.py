@@ -189,6 +189,119 @@ def weekly_review_html(
     return _wrap(f"Weekly Review — {date}", f"Week ending {date} · Grade {grade}", body)
 
 
+def premarket_briefing_html(
+    date: str,
+    regime: str,
+    macro_impact: str,
+    macro_desc: str,
+    candidates: list[dict],
+    at_risk: list[dict],
+    watchlist_size: int,
+    bullish_count: int,
+    bearish_count: int,
+    positions_count: int,
+    lessons: list[str] | None = None,
+) -> str:
+    """Morning briefing email — regime, macro, candidates, at-risk positions."""
+    regime_cls = "green" if "BULL" in regime else "red" if "BEAR" in regime else "yellow"
+    macro_cls = "red" if macro_impact in ("CRITICAL", "HIGH") else "yellow" if macro_impact == "ELEVATED" else "green"
+
+    cand_rows = ""
+    for c in candidates:
+        cand_rows += (
+            f"<tr><td style='font-weight:600'>{c['symbol']}</td>"
+            f"<td>{c['score']}</td>"
+            f"<td style='font-size:12px'>{c.get('catalyst', '—')}</td></tr>"
+        )
+    cand_html = (
+        f"<table><tr><th>Symbol</th><th>Score</th><th>Catalyst</th></tr>{cand_rows}</table>"
+        if cand_rows else "<p style='color:#555;font-size:13px'>No candidates cleared threshold.</p>"
+    )
+
+    risk_rows = ""
+    for r in at_risk:
+        plpc = float(r.get('unrealized_plpc', 0)) * 100
+        risk_rows += (
+            f"<tr><td>{r['symbol']}</td>"
+            f"<td class='red'>{plpc:+.2f}%</td></tr>"
+        )
+    risk_html = (
+        f'<div class="alert">⚠ At-risk positions</div>'
+        f"<table><tr><th>Symbol</th><th>P&L%</th></tr>{risk_rows}</table>"
+        if risk_rows else ""
+    )
+
+    lessons_html = ""
+    if lessons:
+        items = "".join(f"<li style='color:#aaa;font-size:12px'>{l}</li>" for l in lessons[:3])
+        lessons_html = f"<div style='margin-top:12px;font-size:13px;color:#888'>Recent Lessons</div><ul style='margin:4px 0'>{items}</ul>"
+
+    body = f"""
+    <div class="kv"><span class="label">Regime</span>
+      <span class="val {regime_cls}">{regime}</span></div>
+    <div class="kv"><span class="label">Macro</span>
+      <span class="val {macro_cls}">{macro_impact}</span></div>
+    <div class="kv"><span class="label">Macro Detail</span>
+      <span class="val" style="font-size:12px;max-width:320px;text-align:right">{macro_desc or 'No events'}</span></div>
+    <div class="kv"><span class="label">Watchlist</span>
+      <span class="val">{watchlist_size} tickers · {bullish_count} bullish · {bearish_count} bearish</span></div>
+    <div class="kv"><span class="label">Open Positions</span>
+      <span class="val">{positions_count}</span></div>
+    {risk_html}
+    <div style="margin-top:16px;font-size:13px;color:#888">Candidates for Today</div>
+    {cand_html}
+    {lessons_html}
+    """
+    return _wrap(f"Morning Briefing — {date}", f"Pre-market scan · {date}", body)
+
+
+def backtest_results_html(
+    date: str,
+    total_return_pct: float,
+    total_trades: int,
+    win_rate_pct: float,
+    sharpe_ratio: float,
+    max_drawdown_pct: float,
+    profit_factor: float,
+    alpha_vs_spy: float | None = None,
+    starting_capital: float = 100_000,
+    ending_equity: float | None = None,
+) -> str:
+    """Backtest results summary email."""
+    ret_cls = "green" if total_return_pct >= 0 else "red"
+    sign = "+" if total_return_pct >= 0 else ""
+    sharpe_cls = "green" if sharpe_ratio >= 1.0 else "yellow" if sharpe_ratio >= 0.5 else "red"
+    dd_cls = "green" if abs(max_drawdown_pct) <= 10 else "yellow" if abs(max_drawdown_pct) <= 20 else "red"
+    pf_str = f"{profit_factor:.2f}" if isinstance(profit_factor, (int, float)) and profit_factor != float("inf") else "∞"
+    wr_cls = "green" if win_rate_pct >= 50 else "yellow" if win_rate_pct >= 40 else "red"
+
+    alpha_row = ""
+    if alpha_vs_spy is not None:
+        alpha_cls = "green" if alpha_vs_spy >= 0 else "red"
+        alpha_row = f'<div class="kv"><span class="label">Alpha vs S&P 500</span><span class="val {alpha_cls}">{alpha_vs_spy:+.2f}pp</span></div>'
+
+    equity_row = ""
+    if ending_equity is not None:
+        equity_row = f'<div class="kv"><span class="label">Ending Equity</span><span class="val">${ending_equity:,.2f}</span></div>'
+
+    body = f"""
+    <div class="kv"><span class="label">Total Return</span>
+      <span class="val {ret_cls}" style="font-size:18px">{sign}{total_return_pct:.2f}%</span></div>
+    <div class="kv"><span class="label">Starting Capital</span><span class="val">${starting_capital:,.0f}</span></div>
+    {equity_row}
+    {alpha_row}
+    <div class="kv"><span class="label">Total Trades</span><span class="val">{total_trades}</span></div>
+    <div class="kv"><span class="label">Win Rate</span>
+      <span class="val {wr_cls}">{win_rate_pct:.1f}%</span></div>
+    <div class="kv"><span class="label">Profit Factor</span><span class="val">{pf_str}</span></div>
+    <div class="kv"><span class="label">Sharpe Ratio</span>
+      <span class="val {sharpe_cls}">{sharpe_ratio:.2f}</span></div>
+    <div class="kv"><span class="label">Max Drawdown</span>
+      <span class="val {dd_cls}">{abs(max_drawdown_pct):.2f}%</span></div>
+    """
+    return _wrap(f"Backtest Results — {date}", f"12-month strategy simulation · {date}", body)
+
+
 def alert_html(title: str, message: str, severity: str = "warning") -> str:
     """Generic alert email — for midday cuts, thesis breaks, circuit breaker."""
     color = {"warning": "#eab308", "danger": "#ef4444", "info": "#3b82f6"}.get(severity, "#eab308")
