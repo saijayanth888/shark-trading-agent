@@ -17,3 +17,9 @@ Inter-phase state for the current trading day. Overwritten each morning by pre-m
 - Trades placed: 0
 - Tickers: []
 - Notes: No market-open run yet.
+
+## market-open | 16:40 EDT
+traded: none
+count: 0
+regime: UNKNOWN
+macro: normal
