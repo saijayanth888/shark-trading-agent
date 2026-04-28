@@ -12,12 +12,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from shark.memory.atomic import atomic_write_text, file_lock
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]  # shark-trading-agent/
 _MEMORY_DIR = _PROJECT_ROOT / "memory"
 _CONTEXT_FILE = _MEMORY_DIR / "PROJECT-CONTEXT.md"
 _TRADE_LOG_FILE = _MEMORY_DIR / "TRADE-LOG.md"
+_STATE_LOCK = _MEMORY_DIR / ".project-context.lock"
 
 # Default state values
 _DEFAULTS: dict[str, Any] = {
@@ -106,164 +109,163 @@ def update_peak_equity(new_equity: float) -> None:
         "New peak equity: %.2f (was %.2f)", new_equity, current_peak
     )
 
-    if not _CONTEXT_FILE.exists():
-        # Bootstrap a minimal context file
-        content = (
-            "# Shark Trading Agent — Project Context\n\n"
-            f"start_date: {datetime.now().strftime('%Y-%m-%d')}\n"
-            "initial_capital: 0.0\n"
-            f"peak_equity: {new_equity:.2f}\n"
-            "current_mode: paper\n"
-            "circuit_breaker_triggered: false\n"
+    with file_lock(_STATE_LOCK):
+        if not _CONTEXT_FILE.exists():
+            # Bootstrap a minimal context file
+            content = (
+                "# Shark Trading Agent — Project Context\n\n"
+                f"start_date: {datetime.now().strftime('%Y-%m-%d')}\n"
+                "initial_capital: 0.0\n"
+                f"peak_equity: {new_equity:.2f}\n"
+                "current_mode: paper\n"
+                "circuit_breaker_triggered: false\n"
+            )
+            atomic_write_text(_CONTEXT_FILE, content)
+            return
+
+        text = _CONTEXT_FILE.read_text(encoding="utf-8")
+
+        # Replace existing peak_equity line
+        updated = re.sub(
+            r"(peak_equity\s*[:=]\s*)[\d.]+",
+            lambda m: f"{m.group(1)}{new_equity:.2f}",
+            text,
+            flags=re.IGNORECASE,
         )
-        _CONTEXT_FILE.write_text(content, encoding="utf-8")
-        return
 
-    text = _CONTEXT_FILE.read_text(encoding="utf-8")
+        # If line was not found, append it
+        if updated == text:
+            updated = text.rstrip() + f"\npeak_equity: {new_equity:.2f}\n"
 
-    # Replace existing peak_equity line
-    updated = re.sub(
-        r"(peak_equity\s*[:=]\s*)[\d.]+",
-        lambda m: f"{m.group(1)}{new_equity:.2f}",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    # If line was not found, append it
-    if updated == text:
-        updated = text.rstrip() + f"\npeak_equity: {new_equity:.2f}\n"
-
-    _CONTEXT_FILE.write_text(updated, encoding="utf-8")
-    logger.info("peak_equity updated to %.2f in PROJECT-CONTEXT.md", new_equity)
+        atomic_write_text(_CONTEXT_FILE, updated)
+        logger.info("peak_equity updated to %.2f in PROJECT-CONTEXT.md", new_equity)
 
 
 # ---------------------------------------------------------------------------
 # Git memory commit
 # ---------------------------------------------------------------------------
 
+_PUSH_FAILED_FLAG = _MEMORY_DIR / "PUSH-FAILED.flag"
+
+
+def _git(*args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    """Run a git subcommand in the project root and return its result."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(_PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _record_push_failure(reason: str) -> None:
+    """Write a sticky flag so the next routine sees we have unsynced state.
+
+    Operator must investigate, manually merge / push, and remove the flag.
+    The flag itself is committed to git so any host pulling main sees it.
+    """
+    try:
+        atomic_write_text(
+            _PUSH_FAILED_FLAG,
+            "Memory push failed and was NOT silently overwritten with remote.\n"
+            f"Time: {datetime.now().isoformat()}\n"
+            f"Reason: {reason}\n\n"
+            "This means today's local writes (trade log, sidecars, state) are\n"
+            "still on this host but not on origin/main. Operator action required:\n"
+            "  1. Inspect the conflict in memory/ vs origin/main.\n"
+            "  2. Manually merge / commit / push.\n"
+            "  3. rm memory/PUSH-FAILED.flag and commit the removal.\n",
+        )
+    except Exception as exc:  # never let alerting fail the whole routine
+        logger.error("Could not write PUSH-FAILED.flag: %s", exc)
+
+
 def commit_memory(message: str) -> bool:
     """
-    Stage all files in memory/ and create a git commit.
+    Stage all files in memory/ and create a git commit, then push.
+
+    Conflict policy (CHANGED — was destructive, now safe):
+        On a push collision we attempt ONE rebase pull and ONE retry push.
+        If either fails we DO NOT auto-resolve with --theirs / --ours: that
+        previously could overwrite today's trade log, attribution sidecar,
+        or circuit-breaker state with stale remote data. Instead we drop a
+        memory/PUSH-FAILED.flag (which is committed and pushed on the next
+        successful run) and return False so the operator is alerted.
 
     Args:
         message: Commit message.
 
     Returns:
-        True if the commit succeeded, False otherwise.
+        True only when the commit was successfully pushed to origin/main.
+        False on any failure — the caller must treat this as a hard error.
     """
     try:
-        # Stage memory directory
-        add_result = subprocess.run(
-            ["git", "add", "memory/"],
-            cwd=str(_PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
+        add_result = _git("add", "memory/", timeout=30)
         if add_result.returncode != 0:
             logger.error("git add failed: %s", add_result.stderr)
             return False
 
-        # Check if there is anything to commit
-        status_result = subprocess.run(
-            ["git", "status", "--porcelain", "memory/"],
-            cwd=str(_PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if not status_result.stdout.strip():
+        status = _git("status", "--porcelain", "memory/", timeout=30)
+        if not status.stdout.strip():
             logger.info("No changes in memory/ to commit.")
             return True
 
-        commit_result = subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=str(_PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if commit_result.returncode != 0:
-            logger.error("git commit failed: %s", commit_result.stderr)
+        commit = _git("commit", "-m", message, timeout=30)
+        if commit.returncode != 0:
+            logger.error("git commit failed: %s", commit.stderr)
             return False
-
         logger.info("Memory committed: %s", message)
 
-        # Push to remote — required for cloud routines (ephemeral containers)
-        push_result = subprocess.run(
-            ["git", "push", "origin", "HEAD:main"],
-            cwd=str(_PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        push = _git("push", "origin", "HEAD:main")
+        if push.returncode == 0:
+            logger.info("Memory pushed to origin/main")
+            # If we previously failed and the operator has now resolved it,
+            # an explicit rm of the flag would be needed; never auto-clear
+            # because clearing without operator review is exactly the bug we
+            # are trying to prevent.
+            return True
 
-        if push_result.returncode != 0:
-            # Try rebase pull then push once more
-            rebase_result = subprocess.run(
-                ["git", "pull", "--rebase", "origin", "main"],
-                cwd=str(_PROJECT_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=60,
+        # First push failed — try ONE rebase pull then ONE retry push.
+        logger.warning("Initial push failed: %s", push.stderr.strip()[:200])
+        rebase = _git("pull", "--rebase", "origin", "main")
+        if rebase.returncode != 0:
+            # Rebase conflict. Abort to leave the working tree clean, then
+            # alert. We do NOT auto-resolve with --theirs because the conflict
+            # may be on TRADE-LOG.md / open-trades.json where remote-wins
+            # would silently lose today's writes.
+            logger.error(
+                "git rebase failed and we refuse to auto-resolve. stderr=%s",
+                rebase.stderr.strip()[:200],
             )
-
-            if rebase_result.returncode != 0:
-                # Rebase conflict — abort, then retry with merge + ours strategy
-                # (our local memory writes always take priority over stale remote)
-                logger.warning("Rebase conflict detected — aborting and retrying with merge")
-                subprocess.run(
-                    ["git", "rebase", "--abort"],
-                    cwd=str(_PROJECT_ROOT),
-                    capture_output=True, text=True, timeout=30,
-                )
-                merge_result = subprocess.run(
-                    ["git", "pull", "--no-rebase", "-X", "theirs", "origin", "main"],
-                    cwd=str(_PROJECT_ROOT),
-                    capture_output=True, text=True, timeout=60,
-                )
-                if merge_result.returncode != 0:
-                    logger.error("git merge pull also failed: %s", merge_result.stderr)
-                    # Last resort: force-accept everything and re-commit
-                    subprocess.run(
-                        ["git", "checkout", "--theirs", "."],
-                        cwd=str(_PROJECT_ROOT),
-                        capture_output=True, text=True, timeout=30,
-                    )
-                    subprocess.run(
-                        ["git", "add", "-A"],
-                        cwd=str(_PROJECT_ROOT),
-                        capture_output=True, text=True, timeout=30,
-                    )
-                    subprocess.run(
-                        ["git", "-c", "core.editor=true", "rebase", "--continue"],
-                        cwd=str(_PROJECT_ROOT),
-                        capture_output=True, text=True, timeout=30,
-                    )
-
-            retry = subprocess.run(
-                ["git", "push", "origin", "HEAD:main"],
-                cwd=str(_PROJECT_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=60,
+            _git("rebase", "--abort", timeout=30)
+            _record_push_failure(
+                "rebase conflict on memory/* — operator must manually merge "
+                "to avoid overwriting trade log / attribution / state."
             )
-            if retry.returncode != 0:
-                logger.error("git push failed after conflict resolution: %s", retry.stderr)
-                return False
+            return False
 
-        logger.info("Memory pushed to origin/main")
+        retry = _git("push", "origin", "HEAD:main")
+        if retry.returncode != 0:
+            logger.error(
+                "git push retry failed after clean rebase: %s",
+                retry.stderr.strip()[:200],
+            )
+            _record_push_failure(
+                f"push retry failed after rebase: {retry.stderr.strip()[:200]}"
+            )
+            return False
+
+        logger.info("Memory pushed to origin/main (after rebase retry)")
         return True
 
     except subprocess.TimeoutExpired:
         logger.error("git operation timed out.")
+        _record_push_failure("git operation timed out (network or hook hang)")
         return False
-
     except Exception as exc:
         logger.error("Unexpected error during git commit/push: %s", exc)
+        _record_push_failure(f"unexpected exception: {exc}")
         return False
 
 
@@ -278,25 +280,26 @@ def set_circuit_breaker_triggered(triggered: bool) -> None:
     Args:
         triggered: True to activate the circuit breaker, False to reset it.
     """
-    if not _CONTEXT_FILE.exists():
-        logger.warning("PROJECT-CONTEXT.md not found; cannot set circuit breaker.")
-        return
+    with file_lock(_STATE_LOCK):
+        if not _CONTEXT_FILE.exists():
+            logger.warning("PROJECT-CONTEXT.md not found; cannot set circuit breaker.")
+            return
 
-    text = _CONTEXT_FILE.read_text(encoding="utf-8")
-    value = "true" if triggered else "false"
+        text = _CONTEXT_FILE.read_text(encoding="utf-8")
+        value = "true" if triggered else "false"
 
-    updated = re.sub(
-        r"(circuit_breaker_triggered\s*[:=]\s*)\w+",
-        lambda m: f"{m.group(1)}{value}",
-        text,
-        flags=re.IGNORECASE,
-    )
+        updated = re.sub(
+            r"(circuit_breaker_triggered\s*[:=]\s*)\w+",
+            lambda m: f"{m.group(1)}{value}",
+            text,
+            flags=re.IGNORECASE,
+        )
 
-    if updated == text:
-        updated = text.rstrip() + f"\ncircuit_breaker_triggered: {value}\n"
+        if updated == text:
+            updated = text.rstrip() + f"\ncircuit_breaker_triggered: {value}\n"
 
-    _CONTEXT_FILE.write_text(updated, encoding="utf-8")
-    logger.info("circuit_breaker_triggered set to %s", value)
+        atomic_write_text(_CONTEXT_FILE, updated)
+        logger.info("circuit_breaker_triggered set to %s", value)
 
 
 def get_peak_equity() -> float:

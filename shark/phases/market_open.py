@@ -22,6 +22,7 @@ from shark.signals.generator import generate_signal
 from shark.signals.distributor import send_email_digest
 from shark.signals.templates import trade_signal_html
 from shark.memory import handoff, state
+from shark.memory.atomic import atomic_write_json
 from shark.memory.kill_switch import enforce_kill_switch, KillSwitchActive
 
 logger = logging.getLogger(__name__)
@@ -324,12 +325,14 @@ def _prepare(dry_run: bool = False) -> bool:
     # Bugs C+D+E — always pre-write an empty, today-stamped decisions stub so
     # any stale file from a prior run is wiped. If Step 2 (LLM) fails or is
     # skipped, _execute will see today's date with zero decisions = safe no-op.
-    _DECISIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _DECISIONS_FILE.write_text(json.dumps({"date": today, "decisions": []}))
+    atomic_write_json(_DECISIONS_FILE, {"date": today, "decisions": []}, indent=None)
 
     def _write_blocked(reason: str) -> bool:
-        _ANALYSIS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _ANALYSIS_FILE.write_text(json.dumps({"date": today, "blocked": reason, "candidates": []}))
+        atomic_write_json(
+            _ANALYSIS_FILE,
+            {"date": today, "blocked": reason, "candidates": []},
+            indent=None,
+        )
         logger.info("Wrote blocked analysis: %s", reason)
         return True
 
@@ -360,8 +363,7 @@ def _prepare(dry_run: bool = False) -> bool:
         candidates = _parse_confirmed_candidates(today)
     if not candidates:
         logger.info("No candidates for %s", today)
-        _ANALYSIS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _ANALYSIS_FILE.write_text(json.dumps({"date": today, "candidates": []}))
+        atomic_write_json(_ANALYSIS_FILE, {"date": today, "candidates": []}, indent=None)
         return True
 
     try:
@@ -419,8 +421,7 @@ def _prepare(dry_run: bool = False) -> bool:
         "candidates": candidate_data,
     }
 
-    _ANALYSIS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _ANALYSIS_FILE.write_text(json.dumps(analysis, indent=2))
+    atomic_write_json(_ANALYSIS_FILE, analysis, indent=2)
     logger.info(
         "Analysis written: %d candidates — %s",
         len(candidate_data), str(_ANALYSIS_FILE),

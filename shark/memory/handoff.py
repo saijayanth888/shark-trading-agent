@@ -11,17 +11,20 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from shark.memory.atomic import atomic_write_text, file_lock
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _HANDOFF_FILE = _PROJECT_ROOT / "memory" / "DAILY-HANDOFF.md"
+_HANDOFF_LOCK = _PROJECT_ROOT / "memory" / ".daily-handoff.lock"
 
 
 def reset_daily_handoff() -> None:
     """Create a fresh handoff file for today. Called once at pre-market start."""
-    _HANDOFF_FILE.parent.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
-    _HANDOFF_FILE.write_text(f"# Daily Handoff — {today}\n", encoding="utf-8")
+    with file_lock(_HANDOFF_LOCK):
+        atomic_write_text(_HANDOFF_FILE, f"# Daily Handoff — {today}\n")
     logger.info("Daily handoff reset for %s", today)
 
 
@@ -38,14 +41,14 @@ def write_handoff_section(phase: str, data: dict) -> None:
     lines = [f"{k}: {v}" for k, v in data.items()]
     block = f"\n## {phase} | {timestamp}\n" + "\n".join(lines) + "\n"
 
-    if not _HANDOFF_FILE.exists():
-        today = datetime.now().strftime("%Y-%m-%d")
-        _HANDOFF_FILE.write_text(
-            f"# Daily Handoff — {today}\n{block}", encoding="utf-8"
-        )
-    else:
-        with _HANDOFF_FILE.open("a", encoding="utf-8") as f:
-            f.write(block)
+    with file_lock(_HANDOFF_LOCK):
+        if not _HANDOFF_FILE.exists():
+            today = datetime.now().strftime("%Y-%m-%d")
+            atomic_write_text(_HANDOFF_FILE, f"# Daily Handoff — {today}\n{block}")
+        else:
+            # Read-append-rewrite atomically so we never publish a partial file.
+            existing = _HANDOFF_FILE.read_text(encoding="utf-8")
+            atomic_write_text(_HANDOFF_FILE, existing + block)
 
     logger.info("Handoff section written: phase=%s keys=%s", phase, list(data.keys()))
 

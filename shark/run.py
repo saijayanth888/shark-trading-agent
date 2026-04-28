@@ -152,7 +152,14 @@ def _setup_logging() -> None:
 
 
 def _sync_repo() -> None:
-    """Pull latest main so cloud containers pick up memory from previous routines."""
+    """Pull latest main so cloud containers pick up memory from previous routines.
+
+    Conflict policy: if a clean rebase is impossible we abort and proceed with
+    whatever local state we have. We do NOT merge with -X theirs because that
+    can silently overwrite uncommitted local memory writes (trade log,
+    sidecars, state) that another routine on this host produced. The
+    operator-visible PUSH-FAILED.flag check below catches the symmetric case.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     try:
         result = subprocess.run(
@@ -164,25 +171,36 @@ def _sync_repo() -> None:
         )
         if result.returncode == 0:
             logger.info("git pull --rebase completed")
-        else:
-            # Rebase conflict on pull — abort and retry with merge (accept remote)
-            logger.warning("git pull --rebase conflict — aborting and retrying with merge")
-            subprocess.run(
-                ["git", "rebase", "--abort"],
-                cwd=str(repo_root),
-                capture_output=True, text=True, timeout=30,
-            )
-            merge = subprocess.run(
-                ["git", "pull", "--no-rebase", "-X", "theirs", "origin", "main"],
-                cwd=str(repo_root),
-                capture_output=True, text=True, timeout=60,
-            )
-            if merge.returncode == 0:
-                logger.info("git pull merge completed (conflict auto-resolved)")
-            else:
-                logger.warning("git pull merge also failed: %s", merge.stderr[:200])
+            return
+
+        logger.warning(
+            "git pull --rebase conflict — aborting and proceeding with local state. "
+            "stderr=%s", result.stderr.strip()[:200],
+        )
+        subprocess.run(
+            ["git", "rebase", "--abort"],
+            cwd=str(repo_root),
+            capture_output=True, text=True, timeout=30,
+        )
     except Exception as exc:
         logger.warning("git sync skipped: %s", exc)
+
+
+def _check_push_failed_flag() -> bool:
+    """Return True if a previous routine left a PUSH-FAILED.flag we should respect."""
+    flag = Path(__file__).resolve().parents[1] / "memory" / "PUSH-FAILED.flag"
+    if flag.exists():
+        try:
+            content = flag.read_text(encoding="utf-8")[:500]
+        except OSError:
+            content = "(could not read flag)"
+        logger.error(
+            "PUSH-FAILED.flag present — refusing to run trading phase until "
+            "operator resolves the prior memory-sync failure. Contents:\n%s",
+            content,
+        )
+        return True
+    return False
 
 
 def _run_phase(phase: str, dry_run: bool, mode: str = "full") -> bool:
@@ -241,6 +259,16 @@ def main() -> None:
             # Distinct exit code (75) so cron / cloud routines can recognise an
             # operator pause vs an actual failure and skip alerting.
             print(f"KILL SWITCH: {exc}", file=sys.stderr)
+            sys.exit(75)
+
+        # PUSH-FAILED.flag — a prior routine could not push memory and we must
+        # not place new orders on top of unsynced state.
+        if _check_push_failed_flag():
+            print(
+                "FATAL: memory/PUSH-FAILED.flag present — operator must resolve "
+                "the prior memory-sync failure before trading resumes.",
+                file=sys.stderr,
+            )
             sys.exit(75)
 
     # Generate phase-specific context briefing BEFORE execution
