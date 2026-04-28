@@ -21,6 +21,7 @@ import functools
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
 import pandas as pd
@@ -292,9 +293,18 @@ def get_bars(
 
     from alpaca.data.requests import StockBarsRequest  # type: ignore[import]
 
+    # Calculate a safe start date — Alpaca can return 0 bars without one.
+    # Use a generous calendar-day multiplier to cover weekends/holidays.
+    _tf_day_multiplier = {
+        "1Day": 1.8, "1Hour": 0.15, "15Min": 0.04, "5Min": 0.015, "1Min": 0.003,
+    }
+    cal_days = int(limit * _tf_day_multiplier.get(timeframe, 2.0)) + 10
+    start_dt = datetime.now(timezone.utc) - timedelta(days=cal_days)
+
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
         timeframe=tf,
+        start=start_dt,
         limit=limit,
     )
     bars_response = client.get_stock_bars(request)

@@ -30,6 +30,7 @@ _SYSTEM_PROMPT = (
 )
 _MAX_RETRIES = 3
 _BACKOFF_SECONDS = 2
+_MAX_TICKERS_PER_BATCH = 6
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,20 @@ def fetch_market_intel(tickers: list[str]) -> dict[str, Any]:
     requests.HTTPError
         If all retry attempts are exhausted with a non-2xx status.
     """
+    # Batch large watchlists to avoid truncated JSON responses
+    if len(tickers) > _MAX_TICKERS_PER_BATCH:
+        result: dict[str, Any] = {}
+        for i in range(0, len(tickers), _MAX_TICKERS_PER_BATCH):
+            batch = tickers[i : i + _MAX_TICKERS_PER_BATCH]
+            logger.info("Perplexity batch %d-%d of %d", i + 1, i + len(batch), len(tickers))
+            batch_result = _fetch_batch(batch)
+            result.update(batch_result)
+        return result
+    return _fetch_batch(tickers)
+
+
+def _fetch_batch(tickers: list[str]) -> dict[str, Any]:
+    """Fetch intel for a single batch of tickers (max ~6)."""
     api_key = os.environ.get("PERPLEXITY_API_KEY")
     if not api_key:
         raise EnvironmentError(
@@ -105,6 +120,7 @@ def fetch_market_intel(tickers: list[str]) -> dict[str, Any]:
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
+        "max_tokens": 4096,
         "return_citations": True,
     }
 
@@ -222,9 +238,42 @@ def _extract_json(text: str) -> dict[str, Any]:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        logger.error(
-            "Failed to parse Perplexity response as JSON: %s\nRaw content: %.500s",
+        logger.warning(
+            "Full JSON parse failed (%s) — attempting truncated JSON salvage",
             exc,
-            text,
+        )
+        # Try to salvage truncated JSON by finding the last complete ticker block
+        salvaged = _salvage_truncated_json(cleaned)
+        if salvaged:
+            logger.info("Salvaged %d tickers from truncated response", len(salvaged))
+            return salvaged
+        logger.error(
+            "JSON salvage also failed. Raw content: %.500s", text,
         )
         return {}
+
+
+def _salvage_truncated_json(text: str) -> dict[str, Any] | None:
+    """Try to recover partial data from truncated JSON.
+
+    Strategy: find the last complete '},' or '}' before the truncation
+    and close the outer object.
+    """
+    # Find last complete ticker block ending with }
+    last_close = text.rfind("}")
+    if last_close <= 0:
+        return None
+
+    # Try progressively shorter substrings
+    for end_pos in range(last_close, max(last_close - 500, 0), -1):
+        candidate = text[:end_pos + 1]
+        # Ensure we have an outer closing brace
+        if not candidate.rstrip().endswith("}"):
+            candidate = candidate.rstrip().rstrip(",") + "}"
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, dict) and result:
+                return result
+        except json.JSONDecodeError:
+            continue
+    return None

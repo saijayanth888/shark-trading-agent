@@ -36,20 +36,31 @@ def _read_today_candidates() -> list[str]:
     return re.findall(r"\*\*([A-Z]{1,5})\*\*", section_text)
 
 
-def _get_open_price(bars: list[dict]) -> float | None:
-    if not bars:
+def _get_open_price(bars) -> float | None:
+    if bars is None or (hasattr(bars, 'empty') and bars.empty) or len(bars) == 0:
         return None
+    if hasattr(bars, 'iloc'):
+        return float(bars.iloc[0].get("open", bars.iloc[0].get("o", 0))) or None
     return float(bars[0].get("o", bars[0].get("open", 0))) or None
 
 
-def _get_latest_price(bars: list[dict]) -> float | None:
-    if not bars:
+def _get_latest_price(bars) -> float | None:
+    if bars is None or (hasattr(bars, 'empty') and bars.empty) or len(bars) == 0:
         return None
+    if hasattr(bars, 'iloc'):
+        return float(bars.iloc[-1].get("close", bars.iloc[-1].get("c", 0))) or None
     bar = bars[-1]
     return float(bar.get("c", bar.get("close", 0))) or None
 
 
-def _total_volume(bars: list[dict]) -> int:
+def _total_volume(bars) -> int:
+    if bars is None or (hasattr(bars, 'empty') and bars.empty) or len(bars) == 0:
+        return 0
+    if hasattr(bars, 'iloc'):
+        col = "volume" if "volume" in bars.columns else "v"
+        if col in bars.columns:
+            return int(bars[col].sum())
+        return 0
     return sum(int(b.get("v", b.get("volume", 0))) for b in bars)
 
 
@@ -61,7 +72,7 @@ def _validate_candidate(symbol: str) -> tuple[str, str]:
         logger.error("get_bars failed for %s: %s", symbol, exc)
         return "ERROR", f"bars fetch error: {exc}"
 
-    if not bars:
+    if bars is None or (hasattr(bars, 'empty') and bars.empty) or len(bars) == 0:
         return "HALTED_REJECTED", "No bar data returned — market may be halted"
 
     total_vol = _total_volume(bars)
