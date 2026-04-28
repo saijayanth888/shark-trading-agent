@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-28T13:17:32.218287",
+  "generated_at": "2026-04-28T20:25:51.154741",
   "state": {
     "peak_equity": 100000.0,
     "circuit_breaker_triggered": false,
@@ -17,9 +17,26 @@
       "equity": 100000.0,
       "cash": 100000.0,
       "day_pnl": 0.0
+    },
+    {
+      "date": "2026-04-28",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl": 0.0
     }
   ],
-  "daily_snapshots": [],
+  "daily_snapshots": [
+    {
+      "date": "2026-04-28",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl_dollars": 0.0,
+      "day_pnl_pct": 0.0,
+      "positions": [],
+      "trades_today": 0,
+      "trades_this_week": 0
+    }
+  ],
   "open_trades": {},
   "closed_trades": [],
   "stats": {
@@ -35,6 +52,6 @@
     "current_drawdown_pct": 0.0
   },
   "handoff": {
-    "raw": "# Daily Handoff \u2014 2026-04-28\n\n## pre-market | 11:59 EDT\nconfirmed: none\nskipped: AVGO, META, NVDA, GOOGL, AMZN\nmarket: bullish=8 bearish=1 of 22\nregime: BEAR_VOLATILE\nmacro: HIGH\nlessons: none\n\n## market-open | 14:27 EDT\ntraded: none\nreason: regime BEAR_VOLATILE blocks new longs\n\n## market-open | 14:27 EDT\ntraded: none\ncount: 0\nregime: UNKNOWN\nmacro: normal\n\n## market-open | 14:45 EDT\ntraded: none\nreason: regime BEAR_VOLATILE blocks new longs\n\n## market-open | 14:45 EDT\ntraded: none\ncount: 0\nregime: UNKNOWN\nmacro: normal\n"
+    "raw": "# Daily Handoff \u2014 2026-04-28\n\n## pre-market | 11:59 EDT\nconfirmed: none\nskipped: AVGO, META, NVDA, GOOGL, AMZN\nmarket: bullish=8 bearish=1 of 22\nregime: BEAR_VOLATILE\nmacro: HIGH\nlessons: none\n\n## market-open | 14:27 EDT\ntraded: none\nreason: regime BEAR_VOLATILE blocks new longs\n\n## market-open | 14:27 EDT\ntraded: none\ncount: 0\nregime: UNKNOWN\nmacro: normal\n\n## market-open | 14:45 EDT\ntraded: none\nreason: regime BEAR_VOLATILE blocks new longs\n\n## market-open | 14:45 EDT\ntraded: none\ncount: 0\nregime: UNKNOWN\nmacro: normal\n\n## daily-summary | 20:25 EDT\nequity: $100,000.00\ncash: $100,000.00\nday_pnl: +0.00%\nopen_positions: 0\ncircuit_breaker: OK\n"
   }
 }
