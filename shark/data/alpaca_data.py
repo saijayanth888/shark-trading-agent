@@ -184,9 +184,35 @@ def _resolve_timeframe(tf_str: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    """Tolerant float coercion — handles None/empty without raising."""
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, *, default: int = 0) -> int:
+    """Tolerant int coercion — handles None/empty/floats without raising."""
+    if value is None or value == "":
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 @_retry(max_attempts=3, base_delay=1.0)
 def get_account() -> dict[str, Any]:
     """Return key account metrics from Alpaca.
+
+    Defensive: tolerates missing / null fields by coercing to safe defaults
+    so a transient Alpaca outage that returns partial data cannot crash the
+    market-open path. Validates that portfolio_value > 0; if it is not we
+    raise so callers (Guardrails) refuse to size new positions against
+    apparently-empty equity.
 
     Returns
     -------
@@ -199,16 +225,27 @@ def get_account() -> dict[str, Any]:
     ------
     EnvironmentError
         If API keys are missing.
+    RuntimeError
+        If Alpaca reports portfolio_value <= 0 (account closed or stale
+        response). Trading on bad equity data is unsafe.
     """
     client = _get_trading_client()
     acct = client.get_account()
 
+    portfolio_value = _safe_float(getattr(acct, "portfolio_value", None))
+    if portfolio_value <= 0:
+        raise RuntimeError(
+            "Alpaca returned non-positive portfolio_value="
+            f"{getattr(acct, 'portfolio_value', None)!r} — refusing to "
+            "trade on suspect account data."
+        )
+
     return {
-        "equity": float(acct.equity),
-        "cash": float(acct.cash),
-        "buying_power": float(acct.buying_power),
-        "portfolio_value": float(acct.portfolio_value),
-        "daytrade_count": int(acct.daytrade_count),
+        "equity": _safe_float(getattr(acct, "equity", None)),
+        "cash": _safe_float(getattr(acct, "cash", None)),
+        "buying_power": _safe_float(getattr(acct, "buying_power", None)),
+        "portfolio_value": portfolio_value,
+        "daytrade_count": _safe_int(getattr(acct, "daytrade_count", None)),
     }
 
 
@@ -242,14 +279,14 @@ def get_positions() -> list[dict[str, Any]]:
     for pos in positions:
         result.append(
             {
-                "symbol": pos.symbol,
-                "qty": float(pos.qty),
-                "avg_entry_price": float(pos.avg_entry_price),
-                "current_price": float(pos.current_price),
-                "unrealized_pl": float(pos.unrealized_pl),
-                "unrealized_plpc": float(pos.unrealized_plpc),
-                "market_value": float(pos.market_value),
-                "side": _enum_val(pos.side),
+                "symbol": getattr(pos, "symbol", None),
+                "qty": _safe_float(getattr(pos, "qty", None)),
+                "avg_entry_price": _safe_float(getattr(pos, "avg_entry_price", None)),
+                "current_price": _safe_float(getattr(pos, "current_price", None)),
+                "unrealized_pl": _safe_float(getattr(pos, "unrealized_pl", None)),
+                "unrealized_plpc": _safe_float(getattr(pos, "unrealized_plpc", None)),
+                "market_value": _safe_float(getattr(pos, "market_value", None)),
+                "side": _enum_val(getattr(pos, "side", "")),
             }
         )
 

@@ -7,9 +7,12 @@ are read from environment variables.
 
 from __future__ import annotations
 import functools
+import hashlib
 import os
 import logging
 import time
+import uuid
+from datetime import date, timezone
 from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -19,6 +22,62 @@ F = TypeVar("F", bound=Callable[..., Any])
 # Max seconds to poll for a market order fill before giving up
 _FILL_POLL_TIMEOUT = 10
 _FILL_POLL_INTERVAL = 0.5
+
+
+# ---------------------------------------------------------------------------
+# Deterministic client_order_id — idempotent orders (H12)
+# ---------------------------------------------------------------------------
+
+def _make_client_order_id(
+    symbol: str,
+    side: str,
+    qty: int | float,
+    order_tag: str = "market",
+    *,
+    extra: str = "",
+) -> str:
+    """Generate a deterministic UUID-format client_order_id.
+
+    The id is derived from (symbol, side, qty, order_tag, today's date,
+    optional extra) via SHA-256 → UUID5-style truncation. Alpaca rejects
+    duplicate client_order_ids within the same day, so retrying the exact
+    same logical order is safe (idempotent) without risking double-fills.
+
+    ``order_tag`` differentiates order types ("market", "trailing_stop",
+    "bracket", etc.) so a buy entry and its protective stop never collide.
+    """
+    today = date.today().isoformat()  # YYYY-MM-DD
+    payload = f"{symbol}|{side}|{qty}|{order_tag}|{today}|{extra}"
+    digest = hashlib.sha256(payload.encode()).hexdigest()
+    # Format as 36-char UUID string — Alpaca accepts up to 48 chars.
+    return str(uuid.UUID(digest[:32]))
+
+
+# ---------------------------------------------------------------------------
+# Order response validation (M14)
+# ---------------------------------------------------------------------------
+
+class OrderResponseError(RuntimeError):
+    """Raised when an Alpaca order response fails validation."""
+
+
+def _validate_order_response(result: dict[str, Any], *, expected_symbol: str) -> None:
+    """Sanity-check critical fields before we trust the order response.
+
+    Raises OrderResponseError on problems so callers can decide how to
+    handle rather than silently proceeding on garbage data.
+    """
+    oid = result.get("order_id")
+    if not oid or oid == "None":
+        raise OrderResponseError(
+            f"Alpaca returned an order with no id for {expected_symbol}"
+        )
+    sym = (result.get("symbol") or "").upper()
+    if sym and sym != expected_symbol.upper():
+        raise OrderResponseError(
+            f"Symbol mismatch: expected {expected_symbol}, got {sym} "
+            f"(order_id={oid})"
+        )
 
 # ---------------------------------------------------------------------------
 # Lazy Alpaca SDK client — deferred until first use so the module loads even
@@ -97,11 +156,11 @@ def get_existing_position(symbol: str) -> dict[str, Any] | None:
     try:
         pos = client.get_open_position(symbol)
         return {
-            "symbol": pos.symbol,
-            "qty": int(float(pos.qty)),
-            "avg_entry_price": float(pos.avg_entry_price),
-            "market_value": float(pos.market_value),
-            "unrealized_pl": float(pos.unrealized_pl),
+            "symbol": getattr(pos, "symbol", symbol),
+            "qty": int(float(getattr(pos, "qty", 0) or 0)),
+            "avg_entry_price": float(getattr(pos, "avg_entry_price", 0) or 0),
+            "market_value": float(getattr(pos, "market_value", 0) or 0),
+            "unrealized_pl": float(getattr(pos, "unrealized_pl", 0) or 0),
         }
     except Exception:  # noqa: BLE001
         return None  # no position = normal case
@@ -148,6 +207,7 @@ def _order_to_dict(order: Any) -> dict[str, Any]:
     """Normalize an Alpaca order object to a plain dict."""
     return {
         "order_id": str(getattr(order, "id", "") or ""),
+        "client_order_id": str(getattr(order, "client_order_id", "") or ""),
         "symbol": getattr(order, "symbol", None),
         "side": _enum_val(getattr(order, "side", "")),
         "qty": int(float(getattr(order, "qty", 0) or 0)),
@@ -197,15 +257,18 @@ def place_order(
         from alpaca.trading.enums import OrderSide, TimeInForce  # type: ignore[import]
 
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        cid = _make_client_order_id(symbol, side, qty, order_tag=order_type)
 
         order_data = MarketOrderRequest(
             symbol=symbol,
             qty=qty,
             side=order_side,
             time_in_force=TimeInForce.DAY,
+            client_order_id=cid,
         )
         order = client.submit_order(order_data=order_data)
         result = _order_to_dict(order)
+        _validate_order_response(result, expected_symbol=symbol)
         logger.info(
             "Order placed — %s %s x%d | id=%s | status=%s",
             side.upper(),
@@ -227,6 +290,8 @@ def place_order(
 
         return result
 
+    except OrderResponseError:
+        raise
     except Exception as exc:
         logger.error("Order failed for %s: %s", symbol, exc)
         raise RuntimeError(f"Alpaca order failed for {symbol}: {exc}") from exc
@@ -258,15 +323,22 @@ def place_trailing_stop(
         from alpaca.trading.requests import TrailingStopOrderRequest  # type: ignore[import]
         from alpaca.trading.enums import OrderSide, TimeInForce  # type: ignore[import]
 
+        cid = _make_client_order_id(
+            symbol, "sell", qty, order_tag="trailing_stop",
+            extra=f"trail_{trail_percent}",
+        )
+
         order_data = TrailingStopOrderRequest(
             symbol=symbol,
             qty=qty,
             side=OrderSide.SELL,
             time_in_force=TimeInForce.GTC,
             trail_percent=trail_percent,
+            client_order_id=cid,
         )
         order = client.submit_order(order_data=order_data)
         result = _order_to_dict(order)
+        _validate_order_response(result, expected_symbol=symbol)
         logger.info(
             "Trailing stop placed — %s x%d @ %.1f%% trail | id=%s | status=%s",
             symbol,
@@ -277,6 +349,8 @@ def place_trailing_stop(
         )
         return result
 
+    except OrderResponseError:
+        raise
     except Exception as exc:
         logger.error("Trailing stop failed for %s: %s", symbol, exc)
         raise RuntimeError(
@@ -367,15 +441,16 @@ def close_position(symbol: str) -> dict[str, Any]:
     try:
         # Get current position to compute realized P&L
         position = client.get_open_position(symbol)
-        qty = int(float(position.qty))
-        cost_basis = float(position.cost_basis or 0)
-        market_value = float(position.market_value or 0)
+        qty = int(float(getattr(position, "qty", 0) or 0))
+        cost_basis = float(getattr(position, "cost_basis", 0) or 0)
+        market_value = float(getattr(position, "market_value", 0) or 0)
         realized_pl = market_value - cost_basis
 
         # Use the SDK's native close_position for reliability
         order = client.close_position(symbol)
 
         result = _order_to_dict(order)
+        _validate_order_response(result, expected_symbol=symbol)
         result["realized_pl"] = realized_pl
         result["qty_closed"] = qty
 
@@ -448,6 +523,11 @@ def _place_true_bracket(
             TimeInForce,
         )
 
+        cid = _make_client_order_id(
+            symbol, "buy", qty, order_tag="bracket",
+            extra=f"sl_{stop_loss}_tp_{take_profit}",
+        )
+
         order_data = MarketOrderRequest(
             symbol=symbol,
             qty=qty,
@@ -456,9 +536,11 @@ def _place_true_bracket(
             order_class=OrderClass.BRACKET,
             take_profit=TakeProfitRequest(limit_price=round(take_profit, 2)),
             stop_loss=StopLossRequest(stop_price=round(stop_loss, 2)),
+            client_order_id=cid,
         )
         order = client.submit_order(order_data=order_data)
         result = _order_to_dict(order)
+        _validate_order_response(result, expected_symbol=symbol)
         order_id = result["order_id"]
 
         logger.info(
@@ -489,7 +571,7 @@ def _place_true_bracket(
             "qty": qty,
             "order_class": "bracket",
         }
-    except RuntimeError:
+    except (RuntimeError, OrderResponseError):
         raise
     except Exception as exc:
         logger.error("Bracket order failed for %s: %s", symbol, exc)
