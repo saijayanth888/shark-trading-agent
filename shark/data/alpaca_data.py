@@ -370,6 +370,139 @@ def get_bars(
     return bars
 
 
+@_retry(max_attempts=3, base_delay=2.0)
+def get_bars_multi(
+    symbols: list[str],
+    timeframe: str = "1Day",
+    limit: int = 504,
+    batch_size: int = 100,
+) -> dict[str, pd.DataFrame]:
+    """Fetch OHLCV bars for many symbols in batches — used by KB seeding.
+
+    Splits *symbols* into batches of *batch_size* and makes one Alpaca request
+    per batch. Returns a dict {symbol: DataFrame}. Symbols with no data are
+    omitted from the returned dict.
+
+    Parameters
+    ----------
+    symbols:
+        List of uppercase ticker symbols (typically 30–500 tickers).
+    timeframe:
+        Bar timeframe. Defaults to "1Day".
+    limit:
+        Approx number of bars per symbol. Defaults to 504 (~2 years of daily).
+    batch_size:
+        Symbols per HTTP request. Default 100 — well under Alpaca's 200 limit.
+
+    Returns
+    -------
+    dict[str, pd.DataFrame]
+        Mapping of symbol to its OHLCV DataFrame.
+    """
+    if not symbols:
+        return {}
+
+    tf = _resolve_timeframe(timeframe)
+    client = _get_data_client()
+
+    from alpaca.data.requests import StockBarsRequest  # type: ignore[import]
+    from alpaca.data.enums import DataFeed  # type: ignore[import]
+
+    # Generous start date for the requested limit
+    _tf_day_multiplier = {
+        "1Day": 1.8, "1Hour": 0.15, "15Min": 0.04, "5Min": 0.015, "1Min": 0.003,
+    }
+    cal_days = int(limit * _tf_day_multiplier.get(timeframe, 2.0)) + 30
+    start_dt = datetime.now(timezone.utc) - timedelta(days=cal_days)
+
+    feed_str = os.environ.get("ALPACA_DATA_FEED", "iex").lower()
+    feed_map = {"iex": DataFeed.IEX, "sip": DataFeed.SIP, "otc": DataFeed.OTC}
+    feed = feed_map.get(feed_str, DataFeed.IEX)
+
+    out: dict[str, pd.DataFrame] = {}
+    total = len(symbols)
+    for batch_idx in range(0, total, batch_size):
+        batch = symbols[batch_idx:batch_idx + batch_size]
+        logger.info(
+            "get_bars_multi: batch %d-%d of %d symbols",
+            batch_idx + 1, min(batch_idx + batch_size, total), total,
+        )
+        try:
+            request = StockBarsRequest(
+                symbol_or_symbols=batch,
+                timeframe=tf,
+                start=start_dt,
+                feed=feed,
+            )
+            response = client.get_stock_bars(request)
+            df = response.df
+        except Exception as exc:
+            logger.warning("Batch %d failed: %s — falling back to per-symbol", batch_idx, exc)
+            for sym in batch:
+                try:
+                    out[sym] = get_bars(sym, timeframe=timeframe, limit=limit)
+                except Exception as inner_exc:
+                    logger.warning("Per-symbol fallback failed for %s: %s", sym, inner_exc)
+            continue
+
+        if df is None or df.empty:
+            logger.warning("Batch %d returned empty DataFrame", batch_idx)
+            continue
+
+        # Multi-symbol response is indexed by (symbol, timestamp)
+        if isinstance(df.index, pd.MultiIndex):
+            for sym in batch:
+                if sym not in df.index.get_level_values(0):
+                    continue
+                sym_df = df.xs(sym, level=0).reset_index()
+                out[sym] = _normalize_bars_df(sym_df)
+        else:
+            # Single-symbol response (only one ticker actually had data)
+            sym = batch[0] if len(batch) == 1 else None
+            if sym:
+                out[sym] = _normalize_bars_df(df.reset_index())
+
+    return out
+
+
+def _normalize_bars_df(bars: pd.DataFrame) -> pd.DataFrame:
+    """Convert raw Alpaca bars DataFrame into our standard OHLCV schema."""
+    if bars.empty:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+    rename_map: dict[str, str] = {}
+    for col in bars.columns:
+        cl = col.lower()
+        if cl in ("t", "timestamp", "time"):
+            rename_map[col] = "timestamp"
+        elif cl == "o":
+            rename_map[col] = "open"
+        elif cl == "h":
+            rename_map[col] = "high"
+        elif cl == "l":
+            rename_map[col] = "low"
+        elif cl == "c":
+            rename_map[col] = "close"
+        elif cl == "v":
+            rename_map[col] = "volume"
+    bars = bars.rename(columns=rename_map)
+
+    for col in ("timestamp", "open", "high", "low", "close", "volume"):
+        if col not in bars.columns:
+            bars[col] = float("nan")
+
+    bars = bars[["timestamp", "open", "high", "low", "close", "volume"]].copy()
+    for col in ("open", "high", "low", "close", "volume"):
+        bars[col] = pd.to_numeric(bars[col], errors="coerce")
+
+    if not pd.api.types.is_datetime64_any_dtype(bars["timestamp"]):
+        bars["timestamp"] = pd.to_datetime(bars["timestamp"], utc=True)
+    elif bars["timestamp"].dt.tz is None:
+        bars["timestamp"] = bars["timestamp"].dt.tz_localize("UTC")
+
+    return bars.sort_values("timestamp").reset_index(drop=True)
+
+
 @_retry(max_attempts=2, base_delay=1.0)
 def get_watchlist_snapshot(tickers: list[str]) -> list[dict[str, Any]]:
     """Fetch the latest quote snapshot for each ticker in *tickers*.

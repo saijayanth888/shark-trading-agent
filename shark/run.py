@@ -55,6 +55,8 @@ PHASES = {
     "daily-summary": "shark.phases.daily_summary",
     "weekly-review": "shark.phases.weekly_review",
     "backtest": "shark.phases.backtest",
+    "kb-refresh": "shark.phases.kb_refresh",
+    "kb-update": "shark.phases.kb_update",
 }
 
 _LOG_FILE = Path(__file__).resolve().parents[1] / "memory" / "error.log"
@@ -66,6 +68,7 @@ logger = logging.getLogger(__name__)
 _TRADING_PHASES = {
     "pre-market", "pre-execute", "market-open",
     "midday", "daily-summary", "weekly-review", "backtest",
+    "kb-refresh", "kb-update",
 }
 
 _CRITICAL_PACKAGES = {

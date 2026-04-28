@@ -1,6 +1,6 @@
 # Shark Agent — Cloud Routines
 
-Seven scheduled routines run Mon–Fri (plus two Friday-only). Configure in Claude Code Cloud → Routines.
+Nine scheduled routines run on various cadences. Configure in Claude Code Cloud → Routines.
 
 | Routine | File | Cron (America/New_York) | Time ET |
 |---------|------|--------------------------|---------|
@@ -9,8 +9,27 @@ Seven scheduled routines run Mon–Fri (plus two Friday-only). Configure in Clau
 | Market-open execution | market-open.md | `0 10 * * 1-5` | 10:00 AM Mon-Fri |
 | Midday scan | midday.md | `0 13 * * 1-5` | 1:00 PM Mon-Fri |
 | Daily summary | daily-summary.md | `15 16 * * 1-5` | 4:15 PM Mon-Fri |
+| **KB daily update** | **kb-update.md** | **`30 17 * * 1-5`** | **5:30 PM Mon-Fri** |
 | Weekly review | weekly-review.md | `0 17 * * 5` | 5:00 PM Fri |
 | Weekly backtest | backtest.md | `0 18 * * 5` | 6:00 PM Fri |
+| **KB weekly refresh** | **kb-refresh.md** | **`0 8 * * 0`** | **8:00 AM Sun** |
+
+### KB (Knowledge Base) Routines
+
+The KB is a self-contained historical intelligence store in `kb/` that lets all
+trading routines fast-load cached data instead of hitting APIs every time.
+
+- **kb-refresh** (Sunday 8 AM) — heavy weekly rebuild: pulls 2 years of daily bars
+  for the entire S&P 500 + sector ETFs, recomputes statistical patterns
+  (calendar effects, sector rotation, regime outcomes, anti-patterns).
+  Total runtime: ~10-15 min. **Bootstrap once with `python scripts/seed_kb.py --commit`.**
+
+- **kb-update** (Mon-Fri 5:30 PM) — light daily increment: appends today's bar to
+  each ticker file. ~1-2 min runtime. Patterns are NOT recomputed daily
+  (that runs only on Sundays for stability).
+
+Both routines auto-commit + push the `kb/` folder to `main` so all subsequent
+trading routines see the latest data.
 
 ## Critical Setup
 1. Install the Claude GitHub App on this repo
