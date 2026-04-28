@@ -201,12 +201,12 @@ def commit_memory(message: str) -> bool:
         False on any failure — the caller must treat this as a hard error.
     """
     try:
-        add_result = _git("add", "memory/", timeout=30)
+        add_result = _git("add", "memory/", "docs/dashboard/", timeout=30)
         if add_result.returncode != 0:
             logger.error("git add failed: %s", add_result.stderr)
             return False
 
-        status = _git("status", "--porcelain", "memory/", timeout=30)
+        status = _git("status", "--porcelain", "memory/", "docs/dashboard/", timeout=30)
         if not status.stdout.strip():
             logger.info("No changes in memory/ to commit.")
             return True

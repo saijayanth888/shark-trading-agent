@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-04-28T13:17:32.218287",
+  "state": {
+    "peak_equity": 100000.0,
+    "circuit_breaker_triggered": false,
+    "current_mode": "paper",
+    "weekly_trade_count": 0
+  },
+  "kill_switch": {
+    "active": false,
+    "reason": ""
+  },
+  "push_failed": false,
+  "equity_history": [
+    {
+      "date": "2026-04-27",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl": 0.0
+    }
+  ],
+  "daily_snapshots": [],
+  "open_trades": {},
+  "closed_trades": [],
+  "stats": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "total_pnl": 0,
+    "best_trade": 0.0,
+    "worst_trade": 0.0,
+    "avg_r_multiple": 0.0,
+    "max_drawdown_pct": 0.0,
+    "current_drawdown_pct": 0.0
+  },
+  "handoff": {
+    "raw": "# Daily Handoff \u2014 2026-04-28\n\n## pre-market | 11:59 EDT\nconfirmed: none\nskipped: AVGO, META, NVDA, GOOGL, AMZN\nmarket: bullish=8 bearish=1 of 22\nregime: BEAR_VOLATILE\nmacro: HIGH\nlessons: none\n\n## market-open | 14:27 EDT\ntraded: none\nreason: regime BEAR_VOLATILE blocks new longs\n\n## market-open | 14:27 EDT\ntraded: none\ncount: 0\nregime: UNKNOWN\nmacro: normal\n\n## market-open | 14:45 EDT\ntraded: none\nreason: regime BEAR_VOLATILE blocks new longs\n\n## market-open | 14:45 EDT\ntraded: none\ncount: 0\nregime: UNKNOWN\nmacro: normal\n"
+  }
+}

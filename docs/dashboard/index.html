@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shark Trading Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-card: #111827;
+            --bg-card-hover: #1a2236;
+            --border: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.15);
+            --green: #10b981;
+            --green-bg: rgba(16, 185, 129, 0.1);
+            --red: #ef4444;
+            --red-bg: rgba(239, 68, 68, 0.1);
+            --yellow: #f59e0b;
+            --yellow-bg: rgba(245, 158, 11, 0.1);
+            --purple: #8b5cf6;
+            --radius: 12px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1::before {
+            content: '';
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            border-radius: 8px;
+            -webkit-text-fill-color: initial;
+        }
+        .header-meta {
+            text-align: right;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+        .header-meta .mode-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mode-paper { background: var(--yellow-bg); color: var(--yellow); border: 1px solid var(--yellow); }
+        .mode-live { background: var(--green-bg); color: var(--green); border: 1px solid var(--green); }
+
+        /* Alert banners */
+        .alert {
+            padding: 14px 20px;
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+            font-weight: 500;
+            display: none;
+        }
+        .alert-danger {
+            background: var(--red-bg);
+            border: 1px solid var(--red);
+            color: var(--red);
+        }
+        .alert-warning {
+            background: var(--yellow-bg);
+            border: 1px solid var(--yellow);
+            color: var(--yellow);
+        }
+        .alert.active { display: flex; align-items: center; gap: 10px; }
+
+        /* KPI row */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .kpi-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-card-hover);
+        }
+        .kpi-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .kpi-value {
+            font-size: 28px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .kpi-sub {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .positive { color: var(--green); }
+        .negative { color: var(--red); }
+        .neutral { color: var(--text-secondary); }
+
+        /* Charts */
+        .chart-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .chart-section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        /* Two-column layout */
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 900px) {
+            .two-col { grid-template-columns: 1fr; }
+        }
+
+        /* Tables */
+        .table-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+        }
+        .table-section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            font-variant-numeric: tabular-nums;
+        }
+        tr:hover td {
+            background: var(--bg-card-hover);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Status indicators */
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .dot-red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+        .dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-muted);
+            font-size: 12px;
+            border-top: 1px solid var(--border);
+            margin-top: 32px;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 60vh;
+            font-size: 18px;
+            color: var(--text-muted);
+        }
+        .loading::after {
+            content: '';
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Stat grid inside a card */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .stat-item {
+            padding: 12px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+        }
+        .stat-item .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-item .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading">Loading dashboard data</div>
+    <div id="app" class="container" style="display:none;">
+        <!-- Header -->
+        <div class="header">
+            <h1>Shark Trading Agent</h1>
+            <div class="header-meta">
+                <div id="mode-badge"></div>
+                <div id="last-updated" style="margin-top:6px;"></div>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        <div id="alert-kill" class="alert alert-danger">
+            <span class="status-dot dot-red"></span>
+            <span>KILL SWITCH ACTIVE — <span id="kill-reason"></span></span>
+        </div>
+        <div id="alert-push" class="alert alert-warning">
+            <span class="status-dot dot-yellow"></span>
+            <span>PUSH-FAILED.flag present — memory sync requires operator attention</span>
+        </div>
+        <div id="alert-breaker" class="alert alert-danger">
+            <span class="status-dot dot-red"></span>
+            <span>CIRCUIT BREAKER TRIGGERED — new entries halted until operator review</span>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Portfolio Value</div>
+                <div class="kpi-value" id="kpi-equity">—</div>
+                <div class="kpi-sub" id="kpi-equity-sub"></div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Day P&L</div>
+                <div class="kpi-value" id="kpi-day-pnl">—</div>
+                <div class="kpi-sub" id="kpi-day-pnl-sub"></div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Total P&L</div>
+                <div class="kpi-value" id="kpi-total-pnl">—</div>
+                <div class="kpi-sub" id="kpi-total-pnl-sub"></div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Win Rate</div>
+                <div class="kpi-value" id="kpi-win-rate">—</div>
+                <div class="kpi-sub" id="kpi-win-rate-sub"></div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Open Positions</div>
+                <div class="kpi-value" id="kpi-open-pos">0</div>
+                <div class="kpi-sub" id="kpi-open-pos-sub"></div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Peak Equity</div>
+                <div class="kpi-value" id="kpi-peak">—</div>
+                <div class="kpi-sub" id="kpi-drawdown-sub"></div>
+            </div>
+        </div>
+
+        <!-- Equity Chart -->
+        <div class="chart-section">
+            <h2>Equity Curve</h2>
+            <div class="chart-container">
+                <canvas id="equity-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Drawdown + Cumulative P&L side by side -->
+        <div class="two-col">
+            <div class="chart-section" style="margin-bottom:0;">
+                <h2>Drawdown from Peak</h2>
+                <div class="chart-container">
+                    <canvas id="drawdown-chart"></canvas>
+                </div>
+            </div>
+            <div class="chart-section" style="margin-bottom:0;">
+                <h2>Cumulative P&L</h2>
+                <div class="chart-container">
+                    <canvas id="cumulative-pnl-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Two-column: Open Positions + Stats -->
+        <div class="two-col">
+            <div class="table-section">
+                <h2>Open Positions</h2>
+                <div id="open-positions-content"></div>
+            </div>
+            <div class="table-section">
+                <h2>Performance Stats</h2>
+                <div id="stats-content"></div>
+            </div>
+        </div>
+
+        <!-- P&L Chart -->
+        <div class="chart-section">
+            <h2>Daily P&L</h2>
+            <div class="chart-container">
+                <canvas id="pnl-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Allocation + R-Multiple side by side -->
+        <div class="two-col">
+            <div class="chart-section" style="margin-bottom:0;">
+                <h2>Capital Allocation</h2>
+                <div class="chart-container" style="height:260px; display:flex; justify-content:center;">
+                    <canvas id="allocation-chart"></canvas>
+                </div>
+            </div>
+            <div class="chart-section" style="margin-bottom:0;">
+                <h2>R-Multiple Distribution</h2>
+                <div class="chart-container" style="height:260px;">
+                    <canvas id="r-multiple-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Trades -->
+        <div class="table-section" style="margin-bottom:24px;">
+            <h2>Recent Closed Trades</h2>
+            <div id="closed-trades-content"></div>
+        </div>
+
+        <!-- System Status -->
+        <div class="table-section">
+            <h2>System Status</h2>
+            <div id="system-status"></div>
+        </div>
+
+        <div class="footer">
+            Shark Trading Agent Dashboard &mdash; auto-generated after each daily summary
+        </div>
+    </div>
+
+    <script>
+    const $ = id => document.getElementById(id);
+
+    function fmt(n, decimals = 2) {
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals,
+        }).format(n);
+    }
+
+    function fmtCurrency(n) {
+        return '$' + fmt(Math.abs(n));
+    }
+
+    function pnlClass(n) {
+        return n > 0 ? 'positive' : n < 0 ? 'negative' : 'neutral';
+    }
+
+    function pnlSign(n) {
+        return n > 0 ? '+' : '';
+    }
+
+    async function loadData() {
+        try {
+            const resp = await fetch('data.json');
+            if (!resp.ok) throw new Error('data.json not found');
+            return await resp.json();
+        } catch (e) {
+            $('loading').innerHTML = 'No dashboard data yet. Run <code>python -m shark.dashboard.generate</code> to create it.';
+            throw e;
+        }
+    }
+
+    function renderAlerts(data) {
+        if (data.kill_switch && data.kill_switch.active) {
+            $('alert-kill').classList.add('active');
+            $('kill-reason').textContent = data.kill_switch.reason || 'No reason given';
+        }
+        if (data.push_failed) {
+            $('alert-push').classList.add('active');
+        }
+        if (data.state && data.state.circuit_breaker_triggered) {
+            $('alert-breaker').classList.add('active');
+        }
+    }
+
+    function renderHeader(data) {
+        const mode = (data.state && data.state.current_mode) || 'unknown';
+        const badge = $('mode-badge');
+        badge.className = 'mode-badge ' + (mode === 'paper' ? 'mode-paper' : 'mode-live');
+        badge.textContent = mode + ' trading';
+
+        if (data.generated_at) {
+            const d = new Date(data.generated_at);
+            $('last-updated').textContent = 'Updated: ' + d.toLocaleString();
+        }
+    }
+
+    function renderKPIs(data) {
+        const eq = data.equity_history || [];
+        const latest = eq.length > 0 ? eq[eq.length - 1] : null;
+        const prev = eq.length > 1 ? eq[eq.length - 2] : null;
+
+        // Portfolio value
+        if (latest) {
+            $('kpi-equity').textContent = fmtCurrency(latest.equity);
+            $('kpi-equity').className = 'kpi-value';
+            $('kpi-equity-sub').textContent = 'Cash: ' + fmtCurrency(latest.cash);
+        }
+
+        // Day P&L
+        if (latest) {
+            const dayPnl = latest.day_pnl || 0;
+            $('kpi-day-pnl').textContent = pnlSign(dayPnl) + fmtCurrency(dayPnl);
+            $('kpi-day-pnl').className = 'kpi-value ' + pnlClass(dayPnl);
+            if (prev && prev.equity > 0) {
+                const pct = (dayPnl / prev.equity * 100);
+                $('kpi-day-pnl-sub').textContent = pnlSign(pct) + fmt(pct, 2) + '%';
+                $('kpi-day-pnl-sub').className = 'kpi-sub ' + pnlClass(pct);
+            }
+        }
+
+        // Total P&L
+        const stats = data.stats || {};
+        const totalPnl = stats.total_pnl || 0;
+        $('kpi-total-pnl').textContent = pnlSign(totalPnl) + fmtCurrency(totalPnl);
+        $('kpi-total-pnl').className = 'kpi-value ' + pnlClass(totalPnl);
+        $('kpi-total-pnl-sub').textContent = stats.total_trades + ' total trades';
+
+        // Win rate
+        const wr = stats.win_rate || 0;
+        $('kpi-win-rate').textContent = fmt(wr, 1) + '%';
+        $('kpi-win-rate').className = 'kpi-value ' + (wr >= 50 ? 'positive' : wr > 0 ? 'negative' : 'neutral');
+        $('kpi-win-rate-sub').textContent = stats.wins + 'W / ' + stats.losses + 'L';
+
+        // Open positions
+        const openCount = Object.keys(data.open_trades || {}).length;
+        $('kpi-open-pos').textContent = openCount;
+        $('kpi-open-pos-sub').textContent = 'Weekly trades: ' + ((data.state && data.state.weekly_trade_count) || 0);
+
+        // Peak equity
+        const peak = (data.state && data.state.peak_equity) || 0;
+        $('kpi-peak').textContent = fmtCurrency(peak);
+        const dd = stats.current_drawdown_pct || 0;
+        $('kpi-drawdown-sub').textContent = 'Drawdown: ' + fmt(dd, 2) + '%';
+        $('kpi-drawdown-sub').className = 'kpi-sub ' + (dd > 10 ? 'negative' : dd > 5 ? 'negative' : 'neutral');
+    }
+
+    function renderEquityChart(data) {
+        const eq = data.equity_history || [];
+        if (eq.length === 0) {
+            $('equity-chart').parentElement.innerHTML = '<div class="empty-state">No equity data yet</div>';
+            return;
+        }
+
+        new Chart($('equity-chart'), {
+            type: 'line',
+            data: {
+                labels: eq.map(p => p.date),
+                datasets: [{
+                    label: 'Equity',
+                    data: eq.map(p => p.equity),
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: eq.length < 30 ? 4 : 2,
+                    pointBackgroundColor: '#3b82f6',
+                    borderWidth: 2.5,
+                }, {
+                    label: 'Cash',
+                    data: eq.map(p => p.cash),
+                    borderColor: '#8b5cf6',
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', font: { size: 12 } } },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#64748b', maxTicksLimit: 15 },
+                        grid: { color: '#1e293b' },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => '$' + v.toLocaleString(),
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderPnlChart(data) {
+        const eq = data.equity_history || [];
+        if (eq.length === 0) {
+            $('pnl-chart').parentElement.innerHTML = '<div class="empty-state">No P&L data yet</div>';
+            return;
+        }
+
+        const pnls = eq.map(p => p.day_pnl || 0);
+        const colors = pnls.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)');
+        const borders = pnls.map(v => v >= 0 ? '#10b981' : '#ef4444');
+
+        new Chart($('pnl-chart'), {
+            type: 'bar',
+            data: {
+                labels: eq.map(p => p.date),
+                datasets: [{
+                    label: 'Daily P&L',
+                    data: pnls,
+                    backgroundColor: colors,
+                    borderColor: borders,
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#64748b', maxTicksLimit: 15 },
+                        grid: { color: '#1e293b' },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => '$' + v.toLocaleString(),
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderDrawdownChart(data) {
+        const eq = data.equity_history || [];
+        if (eq.length < 2) {
+            $('drawdown-chart').parentElement.innerHTML = '<div class="empty-state">Need more data for drawdown chart</div>';
+            return;
+        }
+
+        let peak = 0;
+        const drawdowns = eq.map(p => {
+            peak = Math.max(peak, p.equity);
+            return peak > 0 ? -((peak - p.equity) / peak * 100) : 0;
+        });
+
+        new Chart($('drawdown-chart'), {
+            type: 'line',
+            data: {
+                labels: eq.map(p => p.date),
+                datasets: [{
+                    label: 'Drawdown %',
+                    data: drawdowns,
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: eq.length < 30 ? 3 : 0,
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.parsed.y.toFixed(2) + '%'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#64748b', maxTicksLimit: 10 },
+                        grid: { color: '#1e293b' },
+                    },
+                    y: {
+                        max: 0,
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => v.toFixed(1) + '%',
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderCumulativePnlChart(data) {
+        const eq = data.equity_history || [];
+        if (eq.length < 2) {
+            $('cumulative-pnl-chart').parentElement.innerHTML = '<div class="empty-state">Need more data for cumulative P&L</div>';
+            return;
+        }
+
+        let cumulative = 0;
+        const cumulativeData = eq.map(p => {
+            cumulative += (p.day_pnl || 0);
+            return cumulative;
+        });
+
+        const colors = cumulativeData.map(v => v >= 0 ? '#10b981' : '#ef4444');
+        const bgColors = cumulativeData.map(v =>
+            v >= 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)'
+        );
+
+        new Chart($('cumulative-pnl-chart'), {
+            type: 'line',
+            data: {
+                labels: eq.map(p => p.date),
+                datasets: [{
+                    label: 'Cumulative P&L',
+                    data: cumulativeData,
+                    borderColor: cumulativeData[cumulativeData.length - 1] >= 0 ? '#10b981' : '#ef4444',
+                    backgroundColor: cumulativeData[cumulativeData.length - 1] >= 0
+                        ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: eq.length < 30 ? 3 : 0,
+                    borderWidth: 2.5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => (ctx.parsed.y >= 0 ? '+' : '') + '$' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#64748b', maxTicksLimit: 10 },
+                        grid: { color: '#1e293b' },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => '$' + v.toLocaleString(),
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderAllocationChart(data) {
+        const eq = data.equity_history || [];
+        const latest = eq.length > 0 ? eq[eq.length - 1] : null;
+        if (!latest || latest.equity <= 0) {
+            $('allocation-chart').parentElement.innerHTML = '<div class="empty-state">No allocation data</div>';
+            return;
+        }
+
+        const cash = latest.cash || 0;
+        const invested = latest.equity - cash;
+
+        new Chart($('allocation-chart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Cash', 'Invested'],
+                datasets: [{
+                    data: [Math.max(0, cash), Math.max(0, invested)],
+                    backgroundColor: ['rgba(139, 92, 246, 0.7)', 'rgba(59, 130, 246, 0.7)'],
+                    borderColor: ['#8b5cf6', '#3b82f6'],
+                    borderWidth: 2,
+                    hoverOffset: 8,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#94a3b8', font: { size: 12 }, padding: 16 },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const val = ctx.parsed;
+                                const pct = (val / latest.equity * 100).toFixed(1);
+                                return `${ctx.label}: $${val.toLocaleString(undefined, {minimumFractionDigits: 2})} (${pct}%)`;
+                            }
+                        }
+                    }
+                },
+            },
+        });
+    }
+
+    function renderRMultipleChart(data) {
+        const trades = data.closed_trades || [];
+        const rMultiples = trades
+            .map(t => t.r_multiple)
+            .filter(r => r != null)
+            .map(Number);
+
+        if (rMultiples.length === 0) {
+            $('r-multiple-chart').parentElement.innerHTML = '<div class="empty-state">No R-multiple data yet</div>';
+            return;
+        }
+
+        // Build histogram buckets: <-2, -2 to -1, -1 to 0, 0 to 1, 1 to 2, 2 to 3, >3
+        const bucketLabels = ['< -2R', '-2 to -1R', '-1 to 0R', '0 to 1R', '1 to 2R', '2 to 3R', '> 3R'];
+        const bucketRanges = [[-Infinity, -2], [-2, -1], [-1, 0], [0, 1], [1, 2], [2, 3], [3, Infinity]];
+        const counts = bucketRanges.map(([lo, hi]) =>
+            rMultiples.filter(r => r >= lo && r < hi).length
+        );
+        // Fix: >= 3 should include exactly 3
+        counts[6] = rMultiples.filter(r => r >= 3).length;
+
+        const bucketColors = [
+            'rgba(239, 68, 68, 0.8)',   // deep red
+            'rgba(239, 68, 68, 0.5)',   // light red
+            'rgba(245, 158, 11, 0.5)',  // yellow-orange
+            'rgba(245, 158, 11, 0.7)',  // yellow
+            'rgba(16, 185, 129, 0.5)',  // light green
+            'rgba(16, 185, 129, 0.7)',  // green
+            'rgba(16, 185, 129, 0.9)',  // deep green
+        ];
+
+        new Chart($('r-multiple-chart'), {
+            type: 'bar',
+            data: {
+                labels: bucketLabels,
+                datasets: [{
+                    label: 'Trades',
+                    data: counts,
+                    backgroundColor: bucketColors,
+                    borderColor: bucketColors.map(c => c.replace(/[\d.]+\)$/, '1)')),
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#64748b', font: { size: 11 } },
+                        grid: { display: false },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            color: '#64748b',
+                            stepSize: 1,
+                            precision: 0,
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderOpenPositions(data) {
+        const trades = data.open_trades || {};
+        const symbols = Object.keys(trades);
+        if (symbols.length === 0) {
+            $('open-positions-content').innerHTML = '<div class="empty-state">No open positions</div>';
+            return;
+        }
+
+        let html = '<table><thead><tr><th>Symbol</th><th>Setup</th><th>Entry Price</th><th>Entry Date</th></tr></thead><tbody>';
+        for (const sym of symbols) {
+            const t = trades[sym];
+            html += `<tr>
+                <td><strong>${sym}</strong></td>
+                <td>${t.setup_tag || '—'}</td>
+                <td>${t.entry_price ? fmtCurrency(t.entry_price) : '—'}</td>
+                <td>${t.entry_date || '—'}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        $('open-positions-content').innerHTML = html;
+    }
+
+    function renderStats(data) {
+        const s = data.stats || {};
+        const items = [
+            ['Total Trades', s.total_trades || 0, ''],
+            ['Win Rate', fmt(s.win_rate || 0, 1) + '%', s.win_rate >= 50 ? 'positive' : 'negative'],
+            ['Avg R-Multiple', fmt(s.avg_r_multiple || 0, 2) + 'R', s.avg_r_multiple >= 0 ? 'positive' : 'negative'],
+            ['Best Trade', pnlSign(s.best_trade || 0) + fmtCurrency(s.best_trade || 0), 'positive'],
+            ['Worst Trade', pnlSign(s.worst_trade || 0) + fmtCurrency(s.worst_trade || 0), 'negative'],
+            ['Max Drawdown', fmt(s.max_drawdown_pct || 0, 2) + '%', s.max_drawdown_pct > 10 ? 'negative' : 'neutral'],
+        ];
+
+        let html = '<div class="stat-grid">';
+        for (const [label, value, cls] of items) {
+            html += `<div class="stat-item">
+                <div class="stat-label">${label}</div>
+                <div class="stat-value ${cls}">${value}</div>
+            </div>`;
+        }
+        html += '</div>';
+        $('stats-content').innerHTML = html;
+    }
+
+    function renderClosedTrades(data) {
+        const trades = data.closed_trades || [];
+        if (trades.length === 0) {
+            $('closed-trades-content').innerHTML = '<div class="empty-state">No closed trades yet</div>';
+            return;
+        }
+
+        let html = '<table><thead><tr><th>Date</th><th>Symbol</th><th>Side</th><th>P&L</th><th>R-Multiple</th></tr></thead><tbody>';
+        for (const t of trades.slice(0, 20)) {
+            const pnl = parseFloat(t.realized_pnl || t.pnl || 0);
+            const rMult = t.r_multiple != null ? fmt(t.r_multiple, 2) + 'R' : '—';
+            html += `<tr>
+                <td>${t.exit_date || t.date || '—'}</td>
+                <td><strong>${t.ticker || t.symbol || '—'}</strong></td>
+                <td>${t.side || '—'}</td>
+                <td class="${pnlClass(pnl)}">${pnlSign(pnl)}${fmtCurrency(pnl)}</td>
+                <td class="${pnlClass(parseFloat(t.r_multiple || 0))}">${rMult}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        $('closed-trades-content').innerHTML = html;
+    }
+
+    function renderSystemStatus(data) {
+        const state = data.state || {};
+        const ks = data.kill_switch || {};
+
+        const rows = [
+            ['Trading Mode', state.current_mode || 'unknown', state.current_mode === 'paper' ? 'dot-yellow' : 'dot-green'],
+            ['Kill Switch', ks.active ? 'ACTIVE' : 'Inactive', ks.active ? 'dot-red' : 'dot-green'],
+            ['Circuit Breaker', state.circuit_breaker_triggered ? 'TRIGGERED' : 'Inactive', state.circuit_breaker_triggered ? 'dot-red' : 'dot-green'],
+            ['Push Failed', data.push_failed ? 'YES' : 'No', data.push_failed ? 'dot-red' : 'dot-green'],
+            ['Weekly Trades', (state.weekly_trade_count || 0) + ' / 3', 'dot-green'],
+        ];
+
+        let html = '<table><thead><tr><th>Check</th><th>Status</th></tr></thead><tbody>';
+        for (const [label, value, dot] of rows) {
+            html += `<tr>
+                <td>${label}</td>
+                <td><span class="status-dot ${dot}"></span>${value}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        $('system-status').innerHTML = html;
+    }
+
+    async function main() {
+        const data = await loadData();
+        $('loading').style.display = 'none';
+        $('app').style.display = 'block';
+
+        renderAlerts(data);
+        renderHeader(data);
+        renderKPIs(data);
+        renderEquityChart(data);
+        renderDrawdownChart(data);
+        renderCumulativePnlChart(data);
+        renderPnlChart(data);
+        renderAllocationChart(data);
+        renderRMultipleChart(data);
+        renderOpenPositions(data);
+        renderStats(data);
+        renderClosedTrades(data);
+        renderSystemStatus(data);
+    }
+
+    main();
+    </script>
+</body>
+</html>

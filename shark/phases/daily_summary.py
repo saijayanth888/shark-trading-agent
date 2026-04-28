@@ -149,6 +149,14 @@ def run(dry_run: bool = False) -> bool:
         "circuit_breaker": "TRIGGERED" if circuit_breaker_active else "OK",
     })
 
+    # Refresh GitHub Pages dashboard data (best-effort, never blocks commit)
+    try:
+        if not dry_run:
+            from shark.dashboard.generate import generate_dashboard_data
+            generate_dashboard_data()
+    except Exception:
+        logger.exception("Dashboard generation failed — continuing to commit")
+
     commit_msg = f"EOD snapshot {today} | equity ${current_equity:,.2f} | day {sign}{day_pnl_pct:.2f}%"
     try:
         if not dry_run:
