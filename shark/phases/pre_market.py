@@ -94,6 +94,30 @@ def _score(
         except Exception as exc:
             logger.debug("KB historical edge failed for %s: %s", symbol, exc)
 
+    # ========== PEAD — Post-Earnings Announcement Drift (Phase 2.5) ==========
+    # Detects qualifying gap+volume events in the recent past and adds a time-
+    # decaying bonus across the 60-day drift window.
+    if symbol:
+        try:
+            from shark.data.pead import (
+                find_active_pead_setup, compute_pead_score_bonus, save_pead_setup,
+            )
+            pead_setup = find_active_pead_setup(symbol, today=today)
+            if pead_setup is not None:
+                pead_bonus = compute_pead_score_bonus(pead_setup)
+                if pead_bonus > 0:
+                    score += pead_bonus
+                    if historical_edge is not None:
+                        historical_edge.bonus += pead_bonus
+                        historical_edge.reasons.append(
+                            f"PEAD active: {pead_setup.direction} gap "
+                            f"{pead_setup.gap_pct:+.1f}%, day +{pead_setup.days_since_event} "
+                            f"(+{pead_bonus} bonus)"
+                        )
+                    save_pead_setup(pead_setup)
+        except Exception as exc:
+            logger.debug("PEAD scoring failed for %s: %s", symbol, exc)
+
     return score, historical_edge
 
 
