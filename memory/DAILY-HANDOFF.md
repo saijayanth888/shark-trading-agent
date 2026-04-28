@@ -17,3 +17,13 @@ traded: none
 count: 0
 regime: UNKNOWN
 macro: normal
+
+## market-open | 14:45 EDT
+traded: none
+reason: regime BEAR_VOLATILE blocks new longs
+
+## market-open | 14:45 EDT
+traded: none
+count: 0
+regime: UNKNOWN
+macro: normal
