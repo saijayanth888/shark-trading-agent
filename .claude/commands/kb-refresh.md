@@ -1,8 +1,18 @@
 # /kb-refresh — Knowledge Base Weekly Rebuild
 
-Runs the heavy weekly KB rebuild locally. Pulls 2 years of daily bars for the entire S&P 500 + sector ETFs + indices, recomputes statistical patterns (calendar effects, sector rotation, regime outcomes, anti-patterns), and commits/pushes the kb/ folder.
+Runs the weekly KB rebuild locally. Incremental by default — full pulls only for new/stale tickers, deltas for fresh ones. Bars use `Adjustment.ALL` (split + dividend adjusted). Auto-detects legacy unadjusted KBs and triggers a one-time full re-pull.
 
-> Equivalent to the Sunday 8 AM ET cloud routine. Runtime: 10–15 minutes.
+Recomputes statistical patterns:
+
+- `kb/patterns/calendar_effects.json` — day-of-week, FOMC drift
+- `kb/patterns/sector_rotation.json` — 6-month sector momentum + top_3 / bottom_3 (used by pre-market scoring)
+- `kb/patterns/regime_outcomes.json` — per-ticker stats by SPY regime
+- `kb/patterns/ticker_base_rates.json` — per-ticker setup win rates
+- `kb/patterns/anti_patterns.json` — auto-reject combos
+
+Also prunes stale PEAD setup files (`kb/earnings/*.json` >90 days, no recorded outcomes).
+
+> Equivalent to the Sunday 8 AM ET cloud routine. Steady-state runtime ~3-5 min; first-time / legacy upgrade ~10-15 min.
 
 ## Run
 

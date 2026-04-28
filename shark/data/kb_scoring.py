@@ -69,6 +69,47 @@ class HistoricalEdge:
         return " ".join(parts)
 
 
+def compute_setup_tag(
+    symbol: str,
+    regime: str = "",
+    today: date | None = None,
+) -> tuple[str, str | None]:
+    """Return the primary strategy tag for *symbol* and (optionally) the
+    PEAD event date when applicable.
+
+    Tag priority:
+        "pead"               — active PEAD setup (gap+volume in drift window)
+        "sector_top"         — ticker is in a top-3 6m-momentum sector
+        "regime_high_winrate"— historical edge >= +4 (not from PEAD/sector)
+        "momentum"           — default fallback (no special signal)
+
+    Cold-start safe: returns ("momentum", None) when KB is empty.
+    """
+    # 1) PEAD wins outright when active — strongest documented edge
+    pead_event_date: str | None = None
+    try:
+        from shark.data.pead import find_active_pead_setup
+        pead_setup = find_active_pead_setup(symbol, today=today)
+        if pead_setup is not None:
+            pead_event_date = pead_setup.event_date.isoformat()
+            return "pead", pead_event_date
+    except Exception as exc:
+        logger.debug("setup_tag: pead lookup failed for %s: %s", symbol, exc)
+
+    # 2) Compute the historical edge so we know what fired (sector/base rate)
+    try:
+        edge = compute_historical_edge(symbol=symbol, regime=regime, today=today)
+        reasons = " ".join(edge.reasons).lower()
+        if "sector tailwind" in reasons:
+            return "sector_top", None
+        if edge.bonus >= _BONUS_HIGH_WIN_RATE:
+            return "regime_high_winrate", None
+    except Exception as exc:
+        logger.debug("setup_tag: edge lookup failed for %s: %s", symbol, exc)
+
+    return "momentum", None
+
+
 def compute_historical_edge(
     symbol: str,
     regime: str = "",

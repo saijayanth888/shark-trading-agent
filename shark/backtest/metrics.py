@@ -110,6 +110,9 @@ def compute_metrics(
     # Regime breakdown
     regime_stats = _regime_breakdown(trades)
 
+    # Strategy attribution breakdown (setup_tag)
+    setup_tag_stats = _setup_tag_breakdown(trades)
+
     # Exit reason breakdown
     exit_stats = _exit_breakdown(trades)
 
@@ -165,6 +168,7 @@ def compute_metrics(
             },
         },
         "regime_breakdown": regime_stats,
+        "setup_tag_breakdown": setup_tag_stats,
         "exit_breakdown": exit_stats,
         "monthly_returns": monthly,
     }
@@ -270,6 +274,26 @@ def _regime_breakdown(trades: list[dict]) -> dict[str, dict]:
             "trades": len(regime_trades),
             "total_pl": round(pl, 2),
             "win_rate_pct": round(wins / len(regime_trades) * 100, 1) if regime_trades else 0,
+        }
+    return result
+
+
+def _setup_tag_breakdown(trades: list[dict]) -> dict[str, dict]:
+    """Aggregate trade outcomes by setup_tag (e.g. 'pead' vs 'momentum')."""
+    tags: dict[str, list] = {}
+    for t in trades:
+        tag = t.get("setup_tag", "momentum") or "momentum"
+        tags.setdefault(tag, []).append(t)
+
+    result = {}
+    for tag, tag_trades in tags.items():
+        pl = sum(t.get("realized_pl", 0) for t in tag_trades)
+        wins = sum(1 for t in tag_trades if t.get("realized_pl", 0) > 0)
+        result[tag] = {
+            "trades": len(tag_trades),
+            "total_pl": round(pl, 2),
+            "win_rate_pct": round(wins / len(tag_trades) * 100, 1) if tag_trades else 0,
+            "avg_pl": round(pl / len(tag_trades), 2) if tag_trades else 0,
         }
     return result
 

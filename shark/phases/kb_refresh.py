@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -191,6 +191,38 @@ def run(dry_run: bool = False) -> bool:
         logger.info("Pattern extraction: %s", stats)
     except Exception as exc:
         logger.error("Pattern extraction failed (non-fatal): %s", exc)
+
+    # ------------------------------------------------------------------
+    # 5b) Prune stale PEAD setups (older than 90 days — past drift window)
+    # ------------------------------------------------------------------
+    try:
+        from shark.data.knowledge_base import _EARNINGS_DIR
+        cutoff = date.today() - timedelta(days=90)
+        pruned = 0
+        for setup_path in _EARNINGS_DIR.glob("*_*.json"):
+            stem = setup_path.stem  # e.g. AMD_2026-04-24
+            parts = stem.rsplit("_", 1)
+            if len(parts) != 2:
+                continue
+            try:
+                event_date = date.fromisoformat(parts[1])
+            except ValueError:
+                continue
+            if event_date < cutoff:
+                # Skip files that have outcomes recorded — keep those for analysis
+                try:
+                    from shark.data.knowledge_base import _read_json
+                    payload = _read_json(setup_path) or {}
+                    if payload.get("outcomes"):
+                        continue
+                except Exception:
+                    pass
+                setup_path.unlink(missing_ok=True)
+                pruned += 1
+        if pruned:
+            logger.info("Pruned %d stale PEAD setup files (>90d, no outcomes)", pruned)
+    except Exception as exc:
+        logger.debug("PEAD prune failed (non-fatal): %s", exc)
 
     # ------------------------------------------------------------------
     # 6) Auto-commit + push kb/ folder (skip when dry_run)

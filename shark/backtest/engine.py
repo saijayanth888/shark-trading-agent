@@ -293,11 +293,21 @@ class BacktestEngine:
             # Compute RS
             rs_composite = compute_rs_at(df, spy_df, bar_index)
 
-            # Check entry criteria
+            # Point-in-time PEAD detection — only sees bars up to bar_index
+            pead_active = False
+            try:
+                from shark.data.pead import find_active_pead_setup_in_df
+                pead_setup = find_active_pead_setup_in_df(df, bar_index, symbol)
+                pead_active = pead_setup is not None
+            except Exception:
+                pead_setup = None
+
+            # Check entry criteria (PEAD active relaxes momentum threshold)
             entry = check_entry(
                 indicators, regime, rs_composite,
                 momentum_min=self.momentum_min,
                 rs_min=self.rs_min,
+                pead_active=pead_active,
             )
 
             if not entry["passed"]:
@@ -332,6 +342,7 @@ class BacktestEngine:
                 regime_at_entry=regime.get("regime", "UNKNOWN"),
                 momentum_score=indicators["momentum_score"],
                 rs_composite=rs_composite,
+                setup_tag="pead" if pead_active else "momentum",
             )
 
             self.open_trades.append(trade)
@@ -397,6 +408,7 @@ class BacktestEngine:
             "regime_at_entry": trade.regime_at_entry,
             "momentum_score": trade.momentum_score,
             "rs_composite": trade.rs_composite,
+            "setup_tag": trade.setup_tag,
             "days_held": trade.days_held,
             "partial_exits": trade.partial_exits,
             "atr_at_entry": trade.atr_at_entry,

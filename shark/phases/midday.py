@@ -254,6 +254,8 @@ def run(dry_run: bool = False) -> bool:
         # === KB LEDGER (Phase 2) — append to kb/trades/ for historical patterns ===
         try:
             from shark.data.knowledge_base import save_closed_trade
+            from shark.memory.open_trades import pop_open_trade
+            sidecar = pop_open_trade(trade.get("symbol", "")) or {}
             kb_trade = {
                 **trade,
                 "ticker": trade.get("symbol"),
@@ -261,8 +263,30 @@ def run(dry_run: bool = False) -> bool:
                 "regime": regime_str,
                 "side": "long",
                 "phase": "midday",
+                "setup_tag": sidecar.get("setup_tag", "momentum"),
+                "pead_event_date": sidecar.get("pead_event_date"),
+                "entry_date": sidecar.get("entry_date"),
             }
             save_closed_trade(kb_trade)
+
+            # === PEAD outcome tracking — update the originating setup file ===
+            if kb_trade.get("setup_tag") == "pead" and sidecar.get("pead_event_date"):
+                try:
+                    from shark.data.knowledge_base import _EARNINGS_DIR, _read_json, _write_json
+                    setup_path = _EARNINGS_DIR / (
+                        f"{trade.get('symbol')}_{sidecar['pead_event_date']}.json"
+                    )
+                    payload = _read_json(setup_path) or {}
+                    payload.setdefault("outcomes", []).append({
+                        "entry_date": sidecar.get("entry_date"),
+                        "exit_date": today,
+                        "pnl_pct": float(trade.get("pnl_pct", 0.0)),
+                        "exit_reason": trade.get("exit_reason", "unknown"),
+                    })
+                    _write_json(setup_path, payload)
+                except Exception as exc:
+                    logger.debug("PEAD outcome write failed for %s: %s",
+                                 trade.get("symbol"), exc)
         except Exception as exc:
             logger.debug("KB save_closed_trade failed for %s: %s",
                          trade.get("symbol"), exc)

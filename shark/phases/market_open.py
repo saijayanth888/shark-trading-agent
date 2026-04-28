@@ -216,7 +216,17 @@ def _collect_candidate_data(
             logger.info("%s failed guardrails — %s", symbol, risk["violations"])
             return None
 
-        logger.info("%s passed all gates — including in analysis", symbol)
+        # Strategy attribution — record what KB signal drove the score.
+        setup_tag, pead_event_date = "momentum", None
+        try:
+            from shark.data.kb_scoring import compute_setup_tag
+            setup_tag, pead_event_date = compute_setup_tag(
+                symbol=symbol, regime=regime_str,
+            )
+        except Exception as exc:
+            logger.debug("setup_tag computation failed for %s: %s", symbol, exc)
+
+        logger.info("%s passed all gates — including in analysis (tag=%s)", symbol, setup_tag)
         return {
             "symbol": symbol,
             "current_price": round(float(current_price), 2),
@@ -225,6 +235,8 @@ def _collect_candidate_data(
             "stop_price": round(float(sizing["stop_price"]), 2),
             "sector": sector,
             "sector_reason": sector_reason,
+            "setup_tag": setup_tag,
+            "pead_event_date": pead_event_date,
             "sizing_method": sizing["method_used"],
             "dollar_amount": round(float(sizing["dollar_amount"]), 2),
             "technicals": {
@@ -453,6 +465,20 @@ def _execute(dry_run: bool = False) -> bool:
             "sizing_method": candidate["sizing_method"],
             "atr": atr,
         })
+
+        # Strategy-attribution sidecar — read by midday at close.
+        try:
+            from shark.memory.open_trades import upsert_open_trade
+            upsert_open_trade(
+                symbol,
+                setup_tag=candidate.get("setup_tag", "momentum"),
+                pead_event_date=candidate.get("pead_event_date"),
+                entry_date=today,
+                entry_price=float(fill_price),
+                regime=regime_str,
+            )
+        except Exception as exc:
+            logger.debug("upsert_open_trade failed for %s: %s", symbol, exc)
 
         signal = generate_signal(dec, execution)
         body_html = _build_email_body(signal, dec, execution)

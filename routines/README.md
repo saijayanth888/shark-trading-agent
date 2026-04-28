@@ -17,18 +17,46 @@ Nine scheduled routines run on various cadences. Configure in Claude Code Cloud 
 ### KB (Knowledge Base) Routines
 
 The KB is a self-contained historical intelligence store in `kb/` that lets all
-trading routines fast-load cached data instead of hitting APIs every time.
+trading routines fast-load cached data and apply rule-based historical edge
+scoring without external dependencies.
 
-- **kb-refresh** (Sunday 8 AM) — heavy weekly rebuild: pulls 2 years of daily bars
-  for the entire S&P 500 + sector ETFs, recomputes statistical patterns
-  (calendar effects, sector rotation, regime outcomes, anti-patterns).
-  Total runtime: ~10-15 min. **Bootstrap once with `python scripts/seed_kb.py --commit`.**
+- **kb-refresh** (Sunday 8 AM) — incremental weekly rebuild: full pull only for
+  new/stale tickers, delta pulls for fresh ones. Bars are fetched with
+  `Adjustment.ALL` (split + dividend adjusted — required for correct sector and
+  regime math). Auto-detects legacy unadjusted KBs and forces a one-time full
+  refresh to upgrade.
+  Recomputes all statistical patterns:
+    - `calendar_effects.json` (day-of-week, FOMC drift)
+    - `sector_rotation.json`  (6m sector momentum, top_3 / bottom_3)
+    - `regime_outcomes.json`  (per-ticker stats by SPY regime)
+    - `ticker_base_rates.json` (per-ticker setup win rates from kb/trades/)
+    - `anti_patterns.json`     (ticker+setup combos that historically fail)
+  Also prunes stale PEAD setup files (>90 days, no recorded outcomes).
+  Steady-state runtime: ~3-5 min.
 
-- **kb-update** (Mon-Fri 5:30 PM) — light daily increment: appends today's bar to
-  each ticker file. ~1-2 min runtime. Patterns are NOT recomputed daily
+- **kb-update** (Mon-Fri 5:30 PM) — light daily increment: appends today's bar
+  to each ticker file. ~1-2 min runtime. Patterns are NOT recomputed daily
   (that runs only on Sundays for stability).
 
-Both routines auto-commit + push the `kb/` folder to `main` so all subsequent
+### Strategy Overlays (read by pre-market scoring)
+
+- **Sector Rotation** (Asness 1997, Faber 2007): tickers in a top-3 6m-momentum
+  sector get +3 score bonus; bottom-3 sectors get -5 penalty. Reads
+  `kb/patterns/sector_rotation.json`.
+- **PEAD** (Bernard-Thomas 1989): detects earnings-like gaps (>4% with >2x
+  volume) from price data and applies a time-decaying score bonus across the
+  60-day post-earnings drift window. Active setups persisted to
+  `kb/earnings/{symbol}_{event_date}.json`. Outcomes are recorded back to that
+  file when the trade closes.
+- **Anti-patterns**: hard-rejects tickers matching documented losing patterns.
+- **Base rate boost/penalty**: ±4 score adjustment when historical win rate in
+  the current regime is consistently above 65% or below 30%.
+
+Strategy attribution is preserved end-to-end: each open trade is tagged with
+`setup_tag` in `memory/open-trades.json`; closed trades carry the tag to
+`kb/trades/`; the weekly backtest report breaks performance down by tag.
+
+Both KB routines auto-commit + push the `kb/` folder to `main` so all subsequent
 trading routines see the latest data.
 
 ## Critical Setup

@@ -61,6 +61,86 @@ class PEADSetup:
         )
 
 
+def find_active_pead_setup_in_df(
+    bars,  # pandas.DataFrame (typed loosely to avoid the import at module-load)
+    bar_index: int,
+    symbol: str = "",
+) -> PEADSetup | None:
+    """Point-in-time PEAD detector for backtests.
+
+    Operates on a pre-loaded DataFrame `bars` and only looks at the slice
+    [0:bar_index+1], so it never peeks at future data.
+
+    The detection rules mirror find_active_pead_setup() so production and
+    backtest use identical logic.
+    """
+    if bars is None or bar_index < 25 or bar_index >= len(bars):
+        return None
+
+    try:
+        import pandas as pd  # local import — backtest path always has pandas
+    except Exception:
+        return None
+
+    df = bars.iloc[: bar_index + 1].copy()
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    df["prev_close"] = df["close"].shift(1)
+    df["gap_pct"] = (df["open"] - df["prev_close"]) / df["prev_close"] * 100
+    df["close_pct"] = (df["close"] - df["prev_close"]) / df["prev_close"] * 100
+    df["avg_vol_20d"] = df["volume"].rolling(20).mean().shift(1)
+
+    scan_window = df.tail(LOOKBACK_DAYS).iloc[::-1]
+    for _, row in scan_window.iterrows():
+        prev_close = row.get("prev_close")
+        avg_vol = row.get("avg_vol_20d")
+        gap_pct = row.get("gap_pct")
+        close_pct = row.get("close_pct")
+        bar_date = row["timestamp"].date() if hasattr(row["timestamp"], "date") else None
+        volume = row.get("volume", 0)
+
+        if (
+            prev_close is None
+            or avg_vol is None
+            or gap_pct is None
+            or bar_date is None
+            or pd.isna(avg_vol)
+            or avg_vol < MIN_VOLUME_20D
+        ):
+            continue
+        if abs(gap_pct) < GAP_THRESHOLD_PCT:
+            continue
+        if volume < VOLUME_MULTIPLE * avg_vol:
+            continue
+
+        idx = int(row.name)
+        days_since = (len(df) - 1) - idx
+        if days_since < 1 or days_since >= DRIFT_WINDOW_DAYS:
+            continue
+
+        direction = "positive" if gap_pct > 0 else "negative"
+        if SKIP_NEGATIVE_PEAD and direction == "negative":
+            continue
+        if direction == "positive" and close_pct < 0:
+            continue
+        if direction == "negative" and close_pct > 0:
+            continue
+
+        return PEADSetup(
+            symbol=symbol.upper(),
+            event_date=bar_date,
+            direction=direction,
+            gap_pct=float(gap_pct),
+            confirmation_close_pct=float(close_pct),
+            volume_ratio=float(volume / avg_vol),
+            days_since_event=int(days_since),
+            drift_window_remaining=int(DRIFT_WINDOW_DAYS - days_since),
+            is_active=True,
+        )
+
+    return None
+
+
 def find_active_pead_setup(
     symbol: str,
     today: date | None = None,

@@ -132,6 +132,9 @@ def run(dry_run: bool = False) -> bool:
         circuit_breaker_note=drawdown_note if circuit_breaker_active else "",
     )
 
+    # Append KB-context block — sector leadership + active PEAD setups
+    body_html += _kb_context_html()
+
     try:
         if not dry_run:
             send_email_digest(subject=subject, body_html=body_html)
@@ -168,3 +171,53 @@ def run(dry_run: bool = False) -> bool:
         return False
 
     return True
+
+
+def _kb_context_html() -> str:
+    """Render a compact KB-context HTML block: sector leaders + active PEAD setups."""
+    parts: list[str] = []
+
+    # Sector leadership (6m momentum, computed weekly)
+    try:
+        from shark.data.knowledge_base import _read_json, _PATTERNS_DIR
+        sector_data = _read_json(_PATTERNS_DIR / "sector_rotation.json") or {}
+        top_3 = sector_data.get("top_3_sectors", [])
+        bottom_3 = sector_data.get("bottom_3_sectors", [])
+        if top_3 and bottom_3:
+            parts.append(
+                "<p><strong>Sector Leaders (6m):</strong> "
+                f"{', '.join(top_3)}<br>"
+                "<strong>Sector Laggards (6m):</strong> "
+                f"{', '.join(bottom_3)}</p>"
+            )
+    except Exception as exc:
+        logger.debug("kb_context: sector lookup failed: %s", exc)
+
+    # Active PEAD setups
+    try:
+        from shark.data.knowledge_base import _EARNINGS_DIR
+        from datetime import date as _date
+        today_d = _date.today()
+        active_count = 0
+        for path in _EARNINGS_DIR.glob("*_*.json"):
+            stem_parts = path.stem.rsplit("_", 1)
+            if len(stem_parts) != 2:
+                continue
+            try:
+                event_date = _date.fromisoformat(stem_parts[1])
+            except ValueError:
+                continue
+            days_since = (today_d - event_date).days
+            if 1 <= days_since < 60:
+                active_count += 1
+        if active_count > 0:
+            parts.append(
+                f"<p><strong>Active PEAD Setups:</strong> {active_count} "
+                "(within the 60-day drift window)</p>"
+            )
+    except Exception as exc:
+        logger.debug("kb_context: pead lookup failed: %s", exc)
+
+    if not parts:
+        return ""
+    return "<hr><h3>Market Context</h3>" + "".join(parts)

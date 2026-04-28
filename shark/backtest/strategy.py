@@ -52,6 +52,9 @@ class Trade:
     momentum_score: float
     rs_composite: float
 
+    # Strategy attribution
+    setup_tag: str = "momentum"
+
     # Mutable state
     remaining_shares: int = 0
     realized_pl: float = 0.0
@@ -282,13 +285,14 @@ def check_entry(
     rs_composite: float,
     momentum_min: float = 40.0,
     rs_min: float = 0.0,
+    pead_active: bool = False,
 ) -> dict[str, Any]:
     """
     Check all entry criteria. Returns pass/fail + reasons.
 
     Criteria:
       1. Regime allows new trades
-      2. Momentum score >= threshold
+      2. Momentum score >= threshold (relaxed by 10 when PEAD is active)
       3. RS composite > min threshold
       4. RSI in range (not overbought >80)
       5. Price above SMA-20
@@ -301,11 +305,13 @@ def check_entry(
         passed = False
         reasons.append(f"regime={regime['regime']} blocks new trades")
 
-    # 2. Momentum score
+    # 2. Momentum score — PEAD setups get a 10-pt threshold relief
+    #    (mirrors the +6 score bonus production scoring applies)
+    effective_momentum_min = momentum_min - (10 if pead_active else 0)
     score = indicators.get("momentum_score", 0)
-    if score < momentum_min:
+    if score < effective_momentum_min:
         passed = False
-        reasons.append(f"momentum={score} < {momentum_min}")
+        reasons.append(f"momentum={score} < {effective_momentum_min}")
 
     # 3. Relative strength
     if rs_composite < rs_min:

@@ -12,7 +12,14 @@ Read `memory/market-open-analysis.json`. If `blocked` key is present, or `candid
 {"decisions": []}
 ```
 
-For each candidate in `candidates`, reason as bull analyst + bear analyst + final decision arbiter. Then write `memory/market-open-decisions.json`:
+For each candidate in `candidates`, reason as bull analyst + bear analyst + final decision arbiter. **Use `setup_tag` to weight your analysis:**
+
+- `pead` — Post-Earnings Announcement Drift active. The earnings event is already in `pead_event_date`. Bias bullish; note the days_since gap and that academic literature shows ~58% positive drift over 30-60 days. Confidence floor 0.72.
+- `sector_top` — ticker is in a top-3 6-month-momentum sector. Mention sector tailwind in the bull thesis.
+- `regime_high_winrate` — historical win rate >65% in the current regime.
+- `momentum` — generic momentum entry; rely on technicals + Perplexity intel only.
+
+Then write `memory/market-open-decisions.json`:
 
 ```json
 {

@@ -29,6 +29,7 @@ def generate_report(metrics: dict[str, Any]) -> Path:
     _trade_stats(lines, metrics)
     _risk_metrics(lines, metrics)
     _regime_breakdown(lines, metrics)
+    _setup_tag_breakdown(lines, metrics)
     _exit_breakdown(lines, metrics)
     _monthly_returns(lines, metrics)
     _notable_trades(lines, metrics)
@@ -121,6 +122,23 @@ def _regime_breakdown(lines: list[str], metrics: dict) -> None:
     for regime, stats in sorted(regimes.items()):
         lines.append(
             f"| {regime} | {stats['trades']} | ${stats['total_pl']:+,.2f} | {stats['win_rate_pct']:.1f}% |"
+        )
+    lines.append("")
+
+
+def _setup_tag_breakdown(lines: list[str], metrics: dict) -> None:
+    tags = metrics.get("setup_tag_breakdown", {})
+    if not tags:
+        return
+
+    lines.append("## Strategy Breakdown (setup_tag)")
+    lines.append("")
+    lines.append("| Setup | Trades | Total P&L | Win Rate | Avg P&L |")
+    lines.append("|---|---|---|---|---|")
+    for tag, stats in sorted(tags.items(), key=lambda x: x[1]["total_pl"], reverse=True):
+        lines.append(
+            f"| {tag} | {stats['trades']} | ${stats['total_pl']:+,.2f} | "
+            f"{stats['win_rate_pct']:.1f}% | ${stats['avg_pl']:+,.2f} |"
         )
     lines.append("")
 
