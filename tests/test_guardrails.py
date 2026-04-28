@@ -1,5 +1,16 @@
 import os
+from unittest.mock import patch
+
 import pytest
+
+_NORMAL_MACRO = {
+    "impact_level": "NORMAL",
+    "rules": {"new_trades_allowed": True, "position_size_multiplier": 1.0, "description": "Normal"},
+    "events_today": [],
+    "events_nearby": [],
+    "description": "No major macro events nearby",
+    "check_date": "2025-01-15",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -7,6 +18,13 @@ def clear_env(monkeypatch):
     for key in ["MAX_POSITIONS", "MAX_POSITION_PCT", "MAX_WEEKLY_TRADES",
                 "MIN_CASH_BUFFER_PCT", "CIRCUIT_BREAKER_PCT", "MAX_SECTOR_FAILURES"]:
         monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _mock_macro():
+    """Prevent date-dependent FOMC/CPI blocks from making tests flaky."""
+    with patch("shark.execution.guardrails.check_macro_calendar", return_value=_NORMAL_MACRO):
+        yield
 
 
 def make_guardrails():

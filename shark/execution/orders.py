@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+# Alpaca SDK error class — used to retry on HTTP 429 / 5xx
+try:
+    from alpaca.common.exceptions import APIError as _AlpacaAPIError  # type: ignore[import]
+except ImportError:
+    class _AlpacaAPIError(Exception):  # type: ignore[no-redef]
+        """Placeholder when alpaca-py is not installed."""
+
 # Max seconds to poll for a market order fill before giving up
 _FILL_POLL_TIMEOUT = 10
 _FILL_POLL_INTERVAL = 0.5
@@ -96,7 +103,7 @@ def _retry_order(
     max_attempts: int = 3,
     base_delay: float = 1.0,
     max_delay: float = 15.0,
-    retryable: tuple[type[Exception], ...] = (OSError, ConnectionError, TimeoutError),
+    retryable: tuple[type[Exception], ...] = (OSError, ConnectionError, TimeoutError, _AlpacaAPIError),
 ) -> Callable[[F], F]:
     """Retry decorator for order operations with exponential backoff."""
     def decorator(fn: F) -> F:
@@ -463,6 +470,8 @@ def close_position(symbol: str) -> dict[str, Any]:
         )
         return result
 
+    except OrderResponseError:
+        raise
     except Exception as exc:
         logger.error("Error closing position for %s: %s", symbol, exc)
         raise RuntimeError(f"Could not close position for {symbol}: {exc}") from exc

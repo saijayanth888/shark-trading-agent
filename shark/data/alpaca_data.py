@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+# Alpaca SDK error class — used to retry on HTTP 429 / 5xx
+try:
+    from alpaca.common.exceptions import APIError as _AlpacaAPIError  # type: ignore[import]
+except ImportError:
+    class _AlpacaAPIError(Exception):  # type: ignore[no-redef]
+        """Placeholder when alpaca-py is not installed."""
+
 
 # ---------------------------------------------------------------------------
 # Retry with exponential backoff — protects against transient API failures
@@ -39,7 +46,7 @@ def _retry(
     max_attempts: int = 3,
     base_delay: float = 1.0,
     max_delay: float = 30.0,
-    retryable: tuple[type[Exception], ...] = (OSError, ConnectionError, TimeoutError),
+    retryable: tuple[type[Exception], ...] = (OSError, ConnectionError, TimeoutError, _AlpacaAPIError),
 ) -> Callable[[F], F]:
     """Decorator: retry on transient errors with exponential backoff.
 

@@ -29,14 +29,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Risk per trade as % of portfolio (base, before adjustments)
-_BASE_RISK_PCT = float(os.environ.get("RISK_PER_TRADE_PCT", "1.0"))
+# Risk per trade as fraction of portfolio (0.01 = 1%).  Matches config.py convention.
+_BASE_RISK_FRAC = float(os.environ.get("RISK_PER_TRADE_PCT", "0.01"))
 
 # ATR multiplier for stop distance (2.0 = stop at 2× ATR below entry)
 _ATR_STOP_MULTIPLE = float(os.environ.get("ATR_STOP_MULTIPLE", "2.0"))
 
-# Max position size as % of portfolio (hard cap)
-_MAX_POSITION_PCT = float(os.environ.get("MAX_POSITION_PCT", "20.0"))
+# Max position size as fraction of portfolio (0.20 = 20%).  Matches config.py convention.
+_MAX_POSITION_FRAC = float(os.environ.get("MAX_POSITION_PCT", "0.20"))
 
 # Min position size in shares
 _MIN_SHARES = 1
@@ -84,7 +84,7 @@ def compute_position_size(
         return _zero_result("regime blocks new trades (BEAR mode)")
 
     # --- METHOD 1: ATR-BASED SIZING ---
-    risk_dollars = portfolio_value * (_BASE_RISK_PCT / 100)
+    risk_dollars = portfolio_value * _BASE_RISK_FRAC
     stop_distance = atr * _ATR_STOP_MULTIPLE if atr > 0 else current_price * 0.10
 
     # Prevent absurdly tight stops
@@ -100,7 +100,7 @@ def compute_position_size(
     kelly_shares = int(kelly_dollars / current_price) if current_price > 0 else 0
 
     # --- MAX CAP: Guardrail limit ---
-    max_dollars = portfolio_value * (_MAX_POSITION_PCT / 100)
+    max_dollars = portfolio_value * _MAX_POSITION_FRAC
     max_shares = int(max_dollars / current_price)
 
     # --- Take minimum of all methods (most conservative wins) ---
@@ -112,7 +112,12 @@ def compute_position_size(
 
     # --- DRAWDOWN SCALING ---
     drawdown_mult = _compute_drawdown_multiplier(portfolio_value, peak_equity)
+    if drawdown_mult <= 0.0:
+        return _zero_result("circuit breaker — drawdown exceeds 15%")
     drawdown_adjusted = int(regime_adjusted * drawdown_mult)
+
+    if drawdown_adjusted <= 0:
+        return _zero_result("position rounded to zero after regime/drawdown scaling")
 
     # --- CONFIDENCE SCALING ---
     # Scale between 80-100% based on confidence (0.70 → 80%, 1.0 → 100%)
@@ -146,7 +151,7 @@ def compute_position_size(
             "drawdown_adjusted": drawdown_adjusted,
             "confidence_scale": round(conf_scale, 2),
             "kelly_pct": round(kelly_pct * 100, 2),
-            "base_risk_pct": _BASE_RISK_PCT,
+            "base_risk_pct": _BASE_RISK_FRAC,
             "atr_stop_multiple": _ATR_STOP_MULTIPLE,
         },
     }
@@ -242,8 +247,8 @@ def _compute_kelly(win_rate: float, avg_win_loss_ratio: float) -> float:
     # Apply fractional Kelly
     fractional = kelly * _KELLY_FRACTION
 
-    # Clamp between 1% and max position %
-    return max(0.01, min(fractional, _MAX_POSITION_PCT / 100))
+    # Clamp between 1% and max position fraction
+    return max(0.01, min(fractional, _MAX_POSITION_FRAC))
 
 
 def _compute_drawdown_multiplier(portfolio_value: float, peak_equity: float) -> float:
