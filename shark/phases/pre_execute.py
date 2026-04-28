@@ -94,7 +94,7 @@ def _validate_candidate(symbol: str) -> tuple[str, str]:
         logger.warning("Perplexity check failed for %s: %s — proceeding without news gate", symbol, exc)
         ticker_intel = {}
 
-    sentiment_score = float(ticker_intel.get("sentiment_score", 0.0))
+    sentiment_score = float(ticker_intel.get("sentiment_score") or 0.0)
     risks = ticker_intel.get("risks", [])
     new_negative = sentiment_score <= -0.5 or any(
         word in " ".join(risks).lower()

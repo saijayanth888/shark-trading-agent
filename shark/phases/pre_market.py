@@ -25,7 +25,7 @@ def _score(intel: dict, rs_data: dict | None = None, regime_str: str = "") -> in
     """Score a ticker based on intel, relative strength, and regime context."""
     score = 0
     catalysts: list[str] = intel.get("catalysts", [])
-    sentiment_score: float = float(intel.get("sentiment_score", 0.0))
+    sentiment_score: float = float(intel.get("sentiment_score") or 0.0)
     analyst_rating: str = intel.get("analyst_rating", "").lower()
     risks: list[str] = intel.get("risks", [])
     earnings_days = intel.get("earnings_within_days")
@@ -200,8 +200,8 @@ def run(dry_run: bool = False) -> bool:
         for pos in at_risk
     ]
 
-    bearish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score", 0.0)) <= -0.3)
-    bullish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score", 0.0)) >= 0.3)
+    bearish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score") or 0.0) <= -0.3)
+    bullish_count = sum(1 for _, _, info in scored if float(info.get("sentiment_score") or 0.0) >= 0.3)
     market_context = (
         f"Scanned {len(watchlist)} tickers [regime={regime_str}, macro={macro_impact}]. "
         f"Bullish: {bullish_count}, Bearish: {bearish_count}. "

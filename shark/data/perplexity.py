@@ -181,15 +181,15 @@ def _fetch_batch(tickers: list[str]) -> dict[str, Any]:
                 int(raw_days) if raw_days is not None and str(raw_days).isdigit() else None
             )
             result[ticker_upper] = {
-                "sentiment_score": float(entry.get("sentiment_score", 0.0)),
-                "headlines": list(entry.get("headlines", [])),
-                "catalysts": list(entry.get("catalysts", [])),
-                "catalyst_specific": bool(entry.get("catalyst_specific", False)),
-                "catalyst_priced_in": bool(entry.get("catalyst_priced_in", False)),
-                "risks": list(entry.get("risks", [])),
-                "invalidation_signals": list(entry.get("invalidation_signals", [])),
+                "sentiment_score": float(entry.get("sentiment_score") or 0.0),
+                "headlines": list(entry.get("headlines") or []),
+                "catalysts": list(entry.get("catalysts") or []),
+                "catalyst_specific": bool(entry.get("catalyst_specific") or False),
+                "catalyst_priced_in": bool(entry.get("catalyst_priced_in") or False),
+                "risks": list(entry.get("risks") or []),
+                "invalidation_signals": list(entry.get("invalidation_signals") or []),
                 "earnings_within_days": earnings_days,
-                "analyst_rating": str(entry.get("analyst_rating", "hold")).lower(),
+                "analyst_rating": str(entry.get("analyst_rating") or "hold").lower(),
                 "raw_response": raw_content,
             }
         else:

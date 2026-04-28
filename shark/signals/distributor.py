@@ -21,8 +21,10 @@ Environment variables:
 
 import logging
 import os
+import socket
 import smtplib
 import urllib.error
+import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -69,6 +71,29 @@ _GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 
 
+def _ipv4_urlopen(req, **kwargs):
+    """urlopen wrapper that forces IPv4 — some cloud sandboxes block IPv6."""
+    import http.client
+    import ssl
+
+    class _IPv4HTTPSConnection(http.client.HTTPSConnection):
+        def connect(self):
+            self.sock = socket.create_connection(
+                (self.host, self.port),
+                timeout=self.timeout,
+                source_address=self.source_address,
+            )
+            ctx = self._context or ssl.create_default_context()
+            self.sock = ctx.wrap_socket(self.sock, server_hostname=self.host)
+
+    class _IPv4HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_IPv4HTTPSConnection, req)
+
+    opener = urllib.request.build_opener(_IPv4HTTPSHandler)
+    return opener.open(req, **kwargs)
+
+
 def _try_gmail_api(subject: str, body_html: str, to_email: str) -> bool:
     """Send email via Gmail REST API using OAuth2 refresh token.
 
@@ -86,8 +111,6 @@ def _try_gmail_api(subject: str, body_html: str, to_email: str) -> bool:
     import base64
     import json as _json
     import time
-    import urllib.request
-    import urllib.parse
 
     # Step 1: Exchange refresh token for access token
     access_token = _get_gmail_access_token(client_id, client_secret, refresh_token)
@@ -117,7 +140,7 @@ def _try_gmail_api(subject: str, body_html: str, to_email: str) -> bool:
                 },
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with _ipv4_urlopen(req, timeout=15) as resp:
                 if resp.status in (200, 201):
                     logger.info("Email sent via Gmail API — subject=%r to=%s", subject, to_email)
                     return True
@@ -147,7 +170,6 @@ def _get_gmail_access_token(
 ) -> str:
     """Exchange a refresh token for a short-lived access token."""
     import json as _json
-    import urllib.request
     import urllib.parse
 
     data = urllib.parse.urlencode({
@@ -161,7 +183,7 @@ def _get_gmail_access_token(
         req = urllib.request.Request(
             _GMAIL_TOKEN_URL, data=data, method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _ipv4_urlopen(req, timeout=10) as resp:
             result = _json.loads(resp.read())
             token = result.get("access_token", "")
             if token:
@@ -206,7 +228,7 @@ def _try_resend(subject: str, body_html: str, to_email: str) -> bool:
                 },
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with _ipv4_urlopen(req, timeout=15) as resp:
                 if resp.status in (200, 201):
                     logger.info("Email sent via Resend — subject=%r to=%s", subject, to_email)
                     return True
