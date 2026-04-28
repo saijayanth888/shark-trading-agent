@@ -21,8 +21,22 @@ _RESEARCH_LOG = Path(__file__).resolve().parents[2] / "memory" / "RESEARCH-LOG.m
 logger = logging.getLogger(__name__)
 
 
-def _score(intel: dict, rs_data: dict | None = None, regime_str: str = "") -> int:
-    """Score a ticker based on intel, relative strength, and regime context."""
+def _score(
+    intel: dict,
+    rs_data: dict | None = None,
+    regime_str: str = "",
+    symbol: str = "",
+    today: date | None = None,
+) -> tuple[int, "HistoricalEdge | None"]:
+    """Score a ticker based on intel, relative strength, regime context, and KB history.
+
+    Returns
+    -------
+    tuple[int, HistoricalEdge | None]
+        (score, historical_edge). historical_edge is None when symbol is empty.
+        If historical_edge.reject is True, the caller should treat the ticker
+        as auto-rejected regardless of score.
+    """
     score = 0
     catalysts: list[str] = intel.get("catalysts", [])
     sentiment_score: float = float(intel.get("sentiment_score") or 0.0)
@@ -67,7 +81,20 @@ def _score(intel: dict, rs_data: dict | None = None, regime_str: str = "") -> in
     if "BEAR" in regime_str:
         score -= 2
 
-    return score
+    # ========== KB HISTORICAL EDGE (Phase 2) ==========
+    # Read-only lookup against kb/patterns/. Cold-start safe (returns 0/no-reject).
+    historical_edge = None
+    if symbol:
+        try:
+            from shark.data.kb_scoring import compute_historical_edge
+            historical_edge = compute_historical_edge(
+                symbol=symbol, regime=regime_str, today=today,
+            )
+            score += historical_edge.bonus
+        except Exception as exc:
+            logger.debug("KB historical edge failed for %s: %s", symbol, exc)
+
+    return score, historical_edge
 
 
 def _notify_premarket_risk(symbol: str, plpc: float) -> None:
@@ -174,10 +201,29 @@ def run(dry_run: bool = False) -> bool:
         logger.warning("Relative strength scan failed — scoring without RS")
 
     scored: list[tuple[int, str, dict]] = []
+    today_dt = date.today()
+    rejected_by_kb: list[tuple[str, str]] = []  # [(ticker, reason)]
+    edge_map: dict[str, "HistoricalEdge"] = {}
     for ticker in watchlist:
         ticker_intel = intel_map.get(ticker, {})
         ticker_rs = rs_map.get(ticker)
-        s = _score(ticker_intel, rs_data=ticker_rs, regime_str=regime_str)
+        s, edge = _score(
+            ticker_intel,
+            rs_data=ticker_rs,
+            regime_str=regime_str,
+            symbol=ticker,
+            today=today_dt,
+        )
+        if edge is not None:
+            edge_map[ticker] = edge
+            if edge.reject:
+                rejected_by_kb.append((ticker, "; ".join(edge.reasons[:2])))
+                logger.warning("KB anti-pattern HARD-REJECTED %s: %s",
+                               ticker, edge.reasons[:1])
+                continue  # skip — no historical edge → don't trade
+            if edge.bonus != 0:
+                logger.info("%s historical edge %+d (%s)",
+                            ticker, edge.bonus, "; ".join(edge.reasons[:2]))
         scored.append((s, ticker, ticker_intel))
 
     scored.sort(key=lambda x: x[0], reverse=True)

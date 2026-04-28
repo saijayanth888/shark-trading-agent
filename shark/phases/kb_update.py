@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
-
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +35,7 @@ def run(dry_run: bool = False) -> bool:
         save_historical_bars,
         load_bars_metadata,
         save_bars_metadata,
+        merge_bars,
         kb_status,
     )
     from shark.data.alpaca_data import get_bars_multi
@@ -64,7 +63,7 @@ def run(dry_run: bool = False) -> bool:
             continue
         try:
             existing_df = load_historical_bars(sym)
-            merged = _merge_bars(existing_df, fresh_df)
+            merged = merge_bars(existing_df, fresh_df)
             # Trim to last 504 bars (~2 years) to bound storage
             if len(merged) > 504:
                 merged = merged.tail(504).reset_index(drop=True)
@@ -93,21 +92,6 @@ def run(dry_run: bool = False) -> bool:
     duration = (datetime.utcnow() - started_at).total_seconds()
     logger.info("KB UPDATE COMPLETE — %d tickers in %.1fs", updated_count, duration)
     return True
-
-
-def _merge_bars(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
-    """Merge fresh bars into existing, keeping latest values per date."""
-    if existing.empty:
-        return fresh.copy()
-    if fresh.empty:
-        return existing.copy()
-
-    combined = pd.concat([existing, fresh], ignore_index=True)
-    # Drop duplicates by date — keep the most recent (last) value
-    combined["_date_key"] = pd.to_datetime(combined["timestamp"]).dt.date
-    combined = combined.drop_duplicates(subset="_date_key", keep="last")
-    combined = combined.drop(columns="_date_key").sort_values("timestamp").reset_index(drop=True)
-    return combined
 
 
 def _git_commit_push(started_at: datetime, updated: int) -> None:

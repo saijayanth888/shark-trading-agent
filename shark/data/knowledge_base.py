@@ -177,6 +177,24 @@ def save_bars_metadata(meta: dict[str, Any]) -> None:
     _write_json(_BARS_META_PATH, meta)
 
 
+def merge_bars(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
+    """Merge fresh bars into existing, deduplicating by date (latest wins).
+
+    Used by kb-refresh (delta pulls) and kb-update (daily increments) to fold
+    new daily bars into the historical 2-year window without duplicating dates.
+    """
+    if existing.empty:
+        return fresh.copy()
+    if fresh.empty:
+        return existing.copy()
+
+    combined = pd.concat([existing, fresh], ignore_index=True)
+    combined["_date_key"] = pd.to_datetime(combined["timestamp"]).dt.date
+    combined = combined.drop_duplicates(subset="_date_key", keep="last")
+    combined = combined.drop(columns="_date_key").sort_values("timestamp").reset_index(drop=True)
+    return combined
+
+
 # ===========================================================================
 # Statistical Patterns (read-only from trading routines)
 # ===========================================================================

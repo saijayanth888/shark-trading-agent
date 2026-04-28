@@ -44,7 +44,8 @@ trading routines see the latest data.
 - `ALPACA_SECRET_KEY` — Alpaca secret key
 - `ALPACA_BASE_URL` — `https://paper-api.alpaca.markets` (paper) or `https://api.alpaca.markets` (live)
 - `PERPLEXITY_API_KEY` — Perplexity API key
-- `ANTHROPIC_API_KEY` — Claude API key
+
+> **Note: `ANTHROPIC_API_KEY` is NOT needed for cloud routines.** Claude IS the brain — the routine prompt itself runs on Claude infrastructure. The Python phases use rule-based analysis when no API key is set, which is the cloud default. Only set `ANTHROPIC_API_KEY` for local dev when running `_run_full` mode (which calls Anthropic directly for combined_analyst / decision_arbiter / trade_reviewer).
 
 ### Email Notifications (required)
 - `GMAIL_APP_PASSWORD` — Gmail app-specific password (NOT your regular Gmail password)

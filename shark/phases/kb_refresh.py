@@ -57,44 +57,110 @@ def run(dry_run: bool = False) -> bool:
     logger.info("Universe size: %d (S&P 500 + sector ETFs + indices)", len(universe))
 
     # ------------------------------------------------------------------
-    # 3) Pull 504 daily bars per ticker (~2 years)
+    # 3) Smart classification — only fetch what's actually needed
+    #    - NEW tickers (not in KB or KB has < 100 bars): pull full 504 bars
+    #    - STALE tickers (last bar > 30 days old): pull full 504 bars
+    #    - FRESH tickers (have recent data): pull last 10 bars (delta only)
+    #    Steady-state cost: ~10 bars × ~520 tickers = ~5K bars (vs 262K brute force)
     # ------------------------------------------------------------------
-    try:
-        from shark.data.alpaca_data import get_bars_multi
-        bars_by_symbol = get_bars_multi(
-            symbols=universe,
-            timeframe="1Day",
-            limit=504,
-            batch_size=100,
-        )
-        logger.info("Pulled bars for %d / %d tickers", len(bars_by_symbol), len(universe))
-    except Exception as exc:
-        logger.error("Bar fetch failed: %s", exc)
-        return False
+    from shark.data.knowledge_base import (
+        load_historical_bars, save_historical_bars,
+        save_bars_metadata, merge_bars,
+    )
+
+    needs_full_pull: list[str] = []
+    needs_delta_pull: list[str] = []
+    today_dt = date.today()
+
+    for sym in universe:
+        existing = load_historical_bars(sym)
+        if existing.empty or len(existing) < 100:
+            needs_full_pull.append(sym)
+            continue
+        try:
+            last_bar_date = existing["timestamp"].max().date()
+        except Exception:
+            needs_full_pull.append(sym)
+            continue
+        days_since = (today_dt - last_bar_date).days
+        if days_since > 30:
+            needs_full_pull.append(sym)
+        else:
+            needs_delta_pull.append(sym)
+
+    logger.info(
+        "Classified universe: %d full pulls (new/stale), %d delta pulls (incremental)",
+        len(needs_full_pull), len(needs_delta_pull),
+    )
 
     # ------------------------------------------------------------------
-    # 4) Persist bars to KB
+    # 4) Fetch + persist
     # ------------------------------------------------------------------
-    from shark.data.knowledge_base import save_historical_bars, save_bars_metadata
+    from shark.data.alpaca_data import get_bars_multi
 
     saved_count = 0
     skipped: list[str] = []
-    for sym, df in bars_by_symbol.items():
-        if df is None or df.empty:
-            skipped.append(sym)
-            continue
+
+    # 4a) Full pulls — overwrite the file with fresh 504 bars
+    if needs_full_pull:
         try:
-            save_historical_bars(sym, df)
-            saved_count += 1
+            full_bars = get_bars_multi(
+                symbols=needs_full_pull,
+                timeframe="1Day",
+                limit=504,
+                batch_size=100,
+            )
+            logger.info("Full pull: got %d / %d tickers", len(full_bars), len(needs_full_pull))
         except Exception as exc:
-            logger.warning("Failed to save bars for %s: %s", sym, exc)
-            skipped.append(sym)
+            logger.error("Full bar fetch failed: %s", exc)
+            full_bars = {}
+        for sym, df in full_bars.items():
+            if df is None or df.empty:
+                skipped.append(sym)
+                continue
+            try:
+                save_historical_bars(sym, df)
+                saved_count += 1
+            except Exception as exc:
+                logger.warning("Failed to save full bars for %s: %s", sym, exc)
+                skipped.append(sym)
+
+    # 4b) Delta pulls — fetch last ~10 bars and merge into existing
+    if needs_delta_pull:
+        try:
+            delta_bars = get_bars_multi(
+                symbols=needs_delta_pull,
+                timeframe="1Day",
+                limit=10,
+                batch_size=100,
+            )
+            logger.info("Delta pull: got %d / %d tickers", len(delta_bars), len(needs_delta_pull))
+        except Exception as exc:
+            logger.error("Delta bar fetch failed: %s", exc)
+            delta_bars = {}
+        for sym, fresh_df in delta_bars.items():
+            if fresh_df is None or fresh_df.empty:
+                # Not necessarily an error — ticker simply had no new bars (e.g. low volume)
+                continue
+            try:
+                existing = load_historical_bars(sym)
+                merged = merge_bars(existing, fresh_df)
+                # Trim to the last 504 bars (~2 years) to bound storage growth
+                if len(merged) > 504:
+                    merged = merged.tail(504).reset_index(drop=True)
+                save_historical_bars(sym, merged)
+                saved_count += 1
+            except Exception as exc:
+                logger.warning("Failed to save delta bars for %s: %s", sym, exc)
+                skipped.append(sym)
 
     save_bars_metadata({
         "last_refresh": started_at.isoformat() + "Z",
         "ticker_count": saved_count,
         "feed": os.environ.get("ALPACA_DATA_FEED", "iex"),
         "universe_size": len(universe),
+        "full_pulls": len(needs_full_pull),
+        "delta_pulls": len(needs_delta_pull),
         "skipped_count": len(skipped),
     })
     logger.info("Saved bars: %d  |  skipped: %d", saved_count, len(skipped))

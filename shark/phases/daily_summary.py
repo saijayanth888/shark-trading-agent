@@ -108,6 +108,14 @@ def run(dry_run: bool = False) -> bool:
     except Exception:
         logger.exception("write_daily_summary failed")
 
+    # === KB DAILY SNAPSHOT (Phase 2) — append to kb/daily/ for historical record ===
+    if not dry_run:
+        try:
+            from shark.data.knowledge_base import save_daily_snapshot
+            save_daily_snapshot(today, summary)
+        except Exception as exc:
+            logger.debug("KB save_daily_snapshot failed: %s", exc)
+
     sign = "+" if day_pnl_pct >= 0 else ""
     subject = f"Shark EOD {today} | {sign}{day_pnl_pct:.2f}%"
     if circuit_breaker_active:

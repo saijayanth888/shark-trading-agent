@@ -251,6 +251,22 @@ def run(dry_run: bool = False) -> bool:
         except Exception:
             logger.debug("Trade review failed for %s", trade.get("symbol"))
 
+        # === KB LEDGER (Phase 2) — append to kb/trades/ for historical patterns ===
+        try:
+            from shark.data.knowledge_base import save_closed_trade
+            kb_trade = {
+                **trade,
+                "ticker": trade.get("symbol"),
+                "exit_date": today,
+                "regime": regime_str,
+                "side": "long",
+                "phase": "midday",
+            }
+            save_closed_trade(kb_trade)
+        except Exception as exc:
+            logger.debug("KB save_closed_trade failed for %s: %s",
+                         trade.get("symbol"), exc)
+
     if actions_taken:
         summary = "; ".join(actions_taken)
         try:
