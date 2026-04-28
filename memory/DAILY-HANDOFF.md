@@ -7,3 +7,13 @@ market: bullish=8 bearish=1 of 22
 regime: BEAR_VOLATILE
 macro: HIGH
 lessons: none
+
+## market-open | 14:27 EDT
+traded: none
+reason: regime BEAR_VOLATILE blocks new longs
+
+## market-open | 14:27 EDT
+traded: none
+count: 0
+regime: UNKNOWN
+macro: normal
