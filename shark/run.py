@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import json
 import logging
 import logging.handlers
 import os
@@ -12,39 +13,56 @@ from pathlib import Path
 # script is invoked directly (e.g. `python shark/run.py <phase>`).
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Auto-install using THIS interpreter — critical for cloud sandbox environments
-# where `python -m pip install` in bash may target a different Python than the runner.
-_req = Path(__file__).resolve().parents[1] / "requirements.txt"
-if _req.exists():
-    _pip_result = subprocess.run(
+
+def _maybe_install_dependencies() -> None:
+    """Install requirements.txt — but only when explicitly opted-in.
+
+    Production deployments should bake dependencies into the container at
+    build time, not on every phase run. Set SHARK_AUTO_INSTALL=1 (typically
+    only in local-dev sandboxes that lack a build step) to opt in.
+
+    Why this changed: previously this ran unconditionally at module import
+    time, which (a) could change runtime behaviour mid-day if requirements
+    drifted, and (b) added 10-30s to every phase startup against a slow
+    network. Both are unacceptable in a market-hours pipeline.
+    """
+    if os.environ.get("SHARK_AUTO_INSTALL", "").lower() not in ("1", "true", "yes"):
+        return
+
+    req = Path(__file__).resolve().parents[1] / "requirements.txt"
+    if not req.exists():
+        return
+
+    pip_result = subprocess.run(
         [
             sys.executable, "-m", "pip", "install",
             "-q",
             "--no-cache-dir",
             "--prefer-binary",
             "--break-system-packages",
-            "-r", str(_req),
+            "-r", str(req),
         ],
         capture_output=True,
         text=True,
     )
-    if _pip_result.returncode != 0:
-        print(f"WARNING: pip install failed (exit {_pip_result.returncode})", file=sys.stderr)
-        if _pip_result.stderr:
-            print(_pip_result.stderr[:500], file=sys.stderr)
-        # Fallback: try uv pip install for uv-managed environments
-        _uv_result = subprocess.run(
-            ["uv", "pip", "install", "-q", "-r", str(_req)],
+    if pip_result.returncode != 0:
+        print(f"WARNING: pip install failed (exit {pip_result.returncode})", file=sys.stderr)
+        if pip_result.stderr:
+            print(pip_result.stderr[:500], file=sys.stderr)
+        # Fallback: uv pip for uv-managed environments
+        uv_result = subprocess.run(
+            ["uv", "pip", "install", "-q", "-r", str(req)],
             capture_output=True,
             text=True,
         )
-        if _uv_result.returncode != 0:
+        if uv_result.returncode != 0:
             print("WARNING: uv pip install also failed", file=sys.stderr)
-            if _uv_result.stderr:
-                print(_uv_result.stderr[:500], file=sys.stderr)
+            if uv_result.stderr:
+                print(uv_result.stderr[:500], file=sys.stderr)
         else:
             print("INFO: uv pip install succeeded (pip had failed)", file=sys.stderr)
 
+from shark.config import load_settings, ConfigError
 from shark.context.context_manager import generate_context_briefing, check_context_health
 from shark.memory.kill_switch import enforce_kill_switch, KillSwitchActive
 
@@ -138,17 +156,72 @@ def _load_env() -> None:
             os.environ.setdefault(key.strip(), val.strip())  # never overrides cloud vars
 
 
-def _setup_logging() -> None:
-    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    logging.basicConfig(level=logging.INFO, format=fmt, stream=sys.stdout)
+class _JsonFormatter(logging.Formatter):
+    """Structured-JSON log formatter for log-aggregation friendly output.
+
+    Emits one JSON object per record so downstream tooling (Datadog, Loki,
+    CloudWatch) can parse fields without regex. Adds a phase_run_id when
+    available so events from a single run are correlated.
+    """
+
+    def __init__(self, run_id: str | None = None) -> None:
+        super().__init__()
+        self._run_id = run_id
+
+    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
+        payload: dict[str, object] = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if self._run_id:
+            payload["run_id"] = self._run_id
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
+def _setup_logging(phase: str | None = None) -> None:
+    """Configure stdout + rotating-file logging.
+
+    Set SHARK_LOG_FORMAT=json to emit structured logs (recommended in
+    production where logs are consumed by an aggregator). Default stays
+    plain text for local readability.
+    """
+    use_json = os.environ.get("SHARK_LOG_FORMAT", "").lower() == "json"
+    text_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+    # Build a per-run correlation id only once per process.
+    run_id: str | None = None
+    if phase is not None:
+        from datetime import datetime
+        run_id = f"{phase}-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+
+    formatter: logging.Formatter
+    if use_json:
+        formatter = _JsonFormatter(run_id=run_id)
+    else:
+        formatter = logging.Formatter(text_fmt)
+
+    root = logging.getLogger()
+    # Avoid duplicate handlers if _setup_logging is called twice (e.g. in tests).
+    for h in list(root.handlers):
+        root.removeHandler(h)
+
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setLevel(logging.INFO)
+    stream.setFormatter(formatter)
+    root.addHandler(stream)
+    root.setLevel(logging.INFO)
 
     _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
         _LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8",
     )
     file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(logging.Formatter(fmt))
-    logging.getLogger().addHandler(file_handler)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
 
 
 def _sync_repo() -> None:
@@ -214,8 +287,9 @@ def _run_phase(phase: str, dry_run: bool, mode: str = "full") -> bool:
 
 def main() -> None:
     _load_env()
-    _setup_logging()
 
+    # Argparse first so we can include phase in the logger run_id and
+    # only auto-install when actually invoked (not on `--help`).
     parser = argparse.ArgumentParser(
         prog="shark",
         description="Shark trading agent — phase runner",
@@ -239,6 +313,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Now we know the phase — set up logging with a per-run correlation id,
+    # and only attempt the opt-in pip install once we're actually running.
+    _setup_logging(args.phase)
+    _maybe_install_dependencies()
+
     logger.info("=== shark run.py starting phase=%s dry_run=%s ===", args.phase, args.dry_run)
     _sync_repo()
 
@@ -249,6 +328,15 @@ def main() -> None:
 
     if not _verify_env_vars(args.phase):
         print(f"FATAL: Missing environment variables for phase '{args.phase}'.", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate the central config — any out-of-range tunable fails fast
+    # before we touch the broker.
+    try:
+        settings = load_settings()
+        logger.info("Config validated. Knobs: %s", settings.safe_dict())
+    except ConfigError as exc:
+        print(f"FATAL: invalid configuration — {exc}", file=sys.stderr)
         sys.exit(1)
 
     # Operator kill switch — refuse to run trading phases while memory/KILL.flag exists.
