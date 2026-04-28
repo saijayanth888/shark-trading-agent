@@ -1,6 +1,6 @@
 # Shark Trading Agent
 
-An autonomous, regime-adaptive AI trading system that manages a US stock portfolio 24/7 using Claude AI, Alpaca Markets, and Perplexity. Runs entirely on cloud routines — seven scheduled phases handle research, execution, risk management, exit management, and strategy validation without human intervention.
+An autonomous, regime-adaptive AI trading system that manages a US stock portfolio 24/7 using Claude AI, Alpaca Markets, and Perplexity. Runs entirely on cloud routines — nine scheduled phases handle research, execution, risk management, exit management, strategy validation, and knowledge base maintenance without human intervention.
 
 Every trade decision, research note, performance review, and backtest result is committed to Git as immutable memory. The system self-learns from past trades, adapts position sizing to market conditions, and continuously validates its own strategy through automated backtesting.
 
@@ -10,18 +10,23 @@ Every trade decision, research note, performance review, and backtest result is 
 
 ## Key Features
 
-- **7 Automated Cloud Routines** — fully unattended daily trading cycle + weekly backtest
+- **9 Automated Cloud Routines** — fully unattended daily trading cycle + weekly backtest + KB maintenance
+- **GitHub Pages Dashboard** — live trading dashboard with 6 charts (equity curve, drawdown, cumulative P&L, daily P&L, allocation, R-multiple distribution), auto-updated after each daily summary
 - **Market Regime Detection** — classifies market as BULL/BEAR × QUIET/VOLATILE using SPY
 - **Relative Strength Ranking** — Mansfield RS vs SPY filters out underperformers
 - **ATR-Based Position Sizing** — risk-normalized sizing with fractional Kelly overlay
 - **Multi-Reason Exit Manager** — hard stops, trailing stops, partial profits, time decay, volatility expansion, thesis breaks, regime shifts
 - **Macro Calendar Blocking** — auto-blocks trades on FOMC, CPI, NFP, Quad Witching days
 - **AI Trade Review** — Claude grades every closed trade A–F, extracts lessons, feeds back into future decisions
+- **Operator Kill Switch** — file-based (`memory/KILL.flag`) instant halt, checked at every trading phase boundary
+- **Atomic File Writes** — crash-safe writes with file locking for all memory operations
+- **Centralized Configuration** — typed, validated `SharkSettings` with safe secret redaction
 - **Context Management** — phase-specific compressed briefings prevent context bloat in cloud routines
 - **Historical Backtesting** — validates strategy parameters against 12 months of real market data
 - **Adaptive Learning Loop** — lessons from past trades are injected into analyst prompts
 - **Drawdown-Aware Scaling** — position sizes automatically reduce as portfolio draws down from peak
 - **Circuit Breaker** — halts all trading at -15% from peak equity
+- **Rate-Limit Resilience** — Alpaca HTTP 429/5xx errors auto-retried with exponential backoff
 
 ---
 
@@ -33,9 +38,11 @@ Every trade decision, research note, performance review, and backtest result is 
 | 9:45 AM | `pre-execute` | Mon–Fri | Validate candidates against first 30 min of live trading data, confirm volume + price action |
 | 10:00 AM | `market-open` | Mon–Fri | Execute trades: combined analyst (bull+bear+decision), regime gates, RS filter, ATR sizing, guardrails, bracket orders |
 | 1:00 PM | `midday` | Mon–Fri | Manage exits only: run exit manager, check hard stops (-7%), tighten trails, detect vol expansion, thesis-break exits, AI trade review |
-| 4:15 PM | `daily-summary` | Mon–Fri | EOD P&L, peak equity update, circuit breaker check, email digest, Git commit |
+| 4:15 PM | `daily-summary` | Mon–Fri | EOD P&L, peak equity update, circuit breaker check, dashboard refresh, email digest, Git commit |
 | 5:00 PM | `weekly-review` | Friday | Grade week vs S&P, compute alpha, win rate, profit factor, plan strategy adjustments |
+| 5:30 PM | `kb-update` | Mon–Fri | Append today's bars to KB ticker files, update rolling stats, commit |
 | 6:00 PM | `backtest` | Friday | Run historical backtest against last 12 months, generate BACKTEST-REPORT.md with metrics + parameter recommendations |
+| 8:00 AM | `kb-refresh` | Sunday | Incremental KB rebuild: delta bars for existing tickers, full pull for new/stale, re-extract all patterns |
 
 Each routine: `clone repo → git pull → generate context briefing → execute phase → git commit + push`
 
@@ -82,6 +89,10 @@ shark-trading-agent/
 │   ├── context/                   ── CONTEXT MANAGEMENT ──────────────────────
 │   │   └── context_manager.py     — Phase-specific briefing generator: extracts, compresses, trims to ~4000 tokens
 │   │
+│   ├── data/                      ── DATA LAYER ──────────────────────────────
+│   │   ├── knowledge_base.py      — KB read/write: daily snapshots, closed trades, patterns, sector rotation
+│   │   └── ...                    — (alpaca_data, perplexity, technical, market_regime, relative_strength, macro_calendar)
+│   │
 │   ├── signals/                   ── SIGNAL DISTRIBUTION ─────────────────────
 │   │   ├── generator.py           — Packages BUY decisions as distributable signals with UUID tracking
 │   │   ├── distributor.py         — Email delivery: daily digest + weekly performance report
@@ -90,16 +101,26 @@ shark-trading-agent/
 │   ├── memory/                    ── MEMORY MANAGEMENT ───────────────────────
 │   │   ├── state.py               — Read/write PROJECT-CONTEXT.md, peak equity, circuit breaker, git commit/push
 │   │   ├── journal.py             — Append-only markdown logging (trades, research, summaries)
-│   │   └── handoff.py             — DAILY-HANDOFF.md inter-phase state passing (pre-market → midday chain)
+│   │   ├── handoff.py             — DAILY-HANDOFF.md inter-phase state passing (pre-market → midday chain)
+│   │   ├── open_trades.py         — open-trades.json sidecar with atomic read-modify-write
+│   │   ├── kill_switch.py         — Operator kill switch (memory/KILL.flag): check, enforce, reason
+│   │   └── atomic.py              — Crash-safe atomic_write_text/json + file_lock context manager
+│   │
+│   ├── dashboard/                  ── GITHUB PAGES DASHBOARD ───────────────────
+│   │   └── generate.py            — Reads memory/ + kb/, writes docs/dashboard/data.json
+│   │
+│   ├── config.py                   — Centralized typed Settings with validation + safe secret logging
 │   │
 │   └── phases/                    ── PHASE RUNNERS ───────────────────────────
 │       ├── pre_market.py          — Watchlist scan, regime detection, macro check, RS ranking, candidate shortlist
 │       ├── pre_execute.py         — Live data validation of pre-market candidates
 │       ├── market_open.py         — Trade execution with full gating pipeline
 │       ├── midday.py              — Position management, exit checks, trade review
-│       ├── daily_summary.py       — EOD snapshot, P&L, circuit breaker, email digest
+│       ├── daily_summary.py       — EOD snapshot, P&L, circuit breaker, dashboard refresh, email digest
 │       ├── weekly_review.py       — Performance grading, alpha computation, strategy notes
-│       └── backtest.py            — Weekly historical backtest execution + report generation
+│       ├── backtest.py            — Weekly historical backtest execution + report generation
+│       ├── kb_update.py           — Daily incremental KB update (append bars, update stats)
+│       └── kb_refresh.py          — Weekly full KB rebuild (delta bars, pattern extraction)
 │
 ├── routines/                      ── CLOUD ROUTINE PROMPTS ───────────────────
 │   ├── pre-market.md              — 6:00 AM ET, Mon–Fri
@@ -108,7 +129,17 @@ shark-trading-agent/
 │   ├── midday.md                  — 1:00 PM ET, Mon–Fri
 │   ├── daily-summary.md           — 4:15 PM ET, Mon–Fri
 │   ├── weekly-review.md           — 5:00 PM ET, Friday
+│   ├── kb-update.md               — 5:30 PM ET, Mon–Fri
+│   ├── kb-refresh.md              — 8:00 AM ET, Sunday
 │   └── README.md                  — Cloud routine setup guide
+│
+├── kb/                            ── KNOWLEDGE BASE ───────────────────────────
+│   ├── daily/                     — Daily snapshots (kb/daily/{date}.json)
+│   ├── trades/                    — Closed trade records
+│   ├── historical_bars/           — Per-ticker bar history (updated by kb-update/kb-refresh)
+│   ├── patterns/                  — Extracted statistical patterns (sector rotation, etc.)
+│   ├── earnings/                  — Earnings event data for PEAD tracking
+│   └── universe/                  — Ticker universe definitions
 │
 ├── memory/                        ── GIT-BACKED STATE ────────────────────────
 │   ├── PROJECT-CONTEXT.md         — Mode, peak equity, circuit breaker, weekly trade count
@@ -140,9 +171,23 @@ shark-trading-agent/
 ├── api/                           ── REST API ────────────────────────────────
 │   └── main.py                    — FastAPI: /portfolio, /signals/latest, /signals/history
 │
-├── tests/                         ── TEST SUITE ──────────────────────────────
+├── docs/                          ── GITHUB PAGES ─────────────────────────────
+│   ├── index.html                 — Root redirect to dashboard/
+│   └── dashboard/
+│       ├── index.html             — Dark-themed SPA: 6 charts, KPIs, tables, system status
+│       └── data.json              — Auto-generated trading data (refreshed each daily summary)
+│
+├── tests/                         ── TEST SUITE (182 tests) ───────────────────
 │   ├── test_guardrails.py         — 29 tests: all 6 guardrail checks + run_all()
-│   └── test_technical.py          — 16 tests: RSI (Wilder smoothing), SMA, volume ratio, ATR, MACD, ADX
+│   ├── test_technical.py          — 16 tests: RSI (Wilder smoothing), SMA, volume ratio, ATR, MACD, ADX
+│   ├── test_position_sizer.py     — 35 tests: ATR/Kelly sizing, circuit breaker, drawdown, confidence
+│   ├── test_exit_manager.py       — 24 tests: hard stop, partials, time decay, regime shift, vol expansion
+│   ├── test_stops.py              — 11 tests: tightening, never-loosen, cancel-place lifecycle, error recovery
+│   ├── test_kill_switch.py        — 10 tests: atomic writes, file locks, kill switch flag detection
+│   ├── test_config.py             — 15 tests: defaults, validation, caching, secret redaction
+│   ├── test_orders.py             — deterministic client_order_id, Alpaca response validation
+│   ├── test_alpaca_data.py        — defensive Alpaca parsing (_safe_float, _safe_int, account/positions)
+│   └── test_dashboard.py          — 4 tests: data.json structure, equity parsing, kill switch, stats
 │
 ├── CLAUDE.md                      — Agent persona, hard rules, context management, phase directives
 ├── env.template                   — All environment variables with descriptions
@@ -546,7 +591,9 @@ BACKTEST_CAPITAL=50000 BACKTEST_MOMENTUM_MIN=50 python shark/run.py backtest
 0  13 * * 1-5   routines/midday.md            # 1:00 PM Mon-Fri
 15 16 * * 1-5   routines/daily-summary.md     # 4:15 PM Mon-Fri
 0  17 * * 5     routines/weekly-review.md     # 5:00 PM Friday
-0  18 * * 5     routines/backtest.md          # 6:00 PM Friday (or add to weekly-review)
+30 17 * * 1-5   routines/kb-update.md         # 5:30 PM Mon-Fri
+0  18 * * 5     routines/backtest.md          # 6:00 PM Friday
+0  8  * * 0     routines/kb-refresh.md        # 8:00 AM Sunday
 ```
 
 ### Environment Variables per Routine
@@ -616,11 +663,12 @@ Target: 100 subscribers × $49–$99/month = $4,900–$9,900/month in parallel w
 | **Research** | Perplexity Sonar-Pro | Real-time market intelligence, catalyst discovery, sentiment analysis |
 | **Execution** | Alpaca Orders API | Market/limit/bracket orders, trailing stops, position management |
 | **Notifications** | Gmail SMTP | Daily digest, trade alerts, weekly reports |
+| **Dashboard** | GitHub Pages + Chart.js | Static trading dashboard with 6 charts, auto-updated at EOD |
 | **State** | Git + Markdown | All memory files committed after each phase — Git log = audit trail |
-| **Scheduling** | Claude Cloud Routines | 7 cron-scheduled phases in ephemeral containers |
+| **Scheduling** | Claude Cloud Routines | 9 cron-scheduled phases in ephemeral containers |
 | **Technical Analysis** | Pandas | RSI, SMA, EMA, ATR, MACD, Bollinger, ADX, VWAP — no external TA library |
 | **REST API** | FastAPI + Uvicorn | Portfolio endpoint, signal history (stub for future expansion) |
-| **Testing** | Pytest | Guardrail checks, technical indicator accuracy, RSI Wilder smoothing |
+| **Testing** | Pytest (182 tests) | Position sizer, exit manager, stops, kill switch, config, guardrails, technicals, orders, dashboard |
 
 ---
 
