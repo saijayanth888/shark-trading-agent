@@ -22,6 +22,7 @@ from shark.signals.generator import generate_signal
 from shark.signals.distributor import send_email_digest
 from shark.signals.templates import trade_signal_html
 from shark.memory import handoff, state
+from shark.memory.kill_switch import enforce_kill_switch, KillSwitchActive
 
 logger = logging.getLogger(__name__)
 
@@ -257,11 +258,23 @@ def _collect_candidate_data(
             logger.debug("setup_tag computation failed for %s: %s", symbol, exc)
 
         logger.info("%s passed all gates — including in analysis (tag=%s)", symbol, setup_tag)
+        # ATR-derived trailing stop — keeps trail proportional to a ticker's
+        # actual volatility rather than a fixed 10%. ATR_TRAIL_MULTIPLE controls
+        # tightness (default 3.0x ATR ~= typical swing-trade trail).
+        atr_trail_multiple = float(os.environ.get("ATR_TRAIL_MULTIPLE", "3.0"))
+        trail_pct_min = float(os.environ.get("TRAIL_PCT_MIN", "5.0"))
+        trail_pct_max = float(os.environ.get("TRAIL_PCT_MAX", "15.0"))
+        if current_price > 0 and atr > 0:
+            atr_trail = (atr / current_price) * 100.0 * atr_trail_multiple * stop_width
+            computed_trail = max(trail_pct_min, min(trail_pct_max, atr_trail))
+        else:
+            computed_trail = round(10.0 * stop_width, 1)
+
         return {
             "symbol": symbol,
             "current_price": round(float(current_price), 2),
             "qty": sizing["shares"],
-            "trail_pct": round(10.0 * stop_width, 1),
+            "trail_pct": round(computed_trail, 1),
             "stop_price": round(float(sizing["stop_price"]), 2),
             "sector": sector,
             "sector_reason": sector_reason,
@@ -597,8 +610,7 @@ def _execute(dry_run: bool = False) -> bool:
 
     if not dry_run:
         try:
-            if trades_placed > 0:
-                state.update_weekly_trade_count(weekly_count + trades_placed)
+            # Weekly trade count is derived from TRADE-LOG.md on read; nothing to write here.
             traded_label = ",".join(symbols_traded) if symbols_traded else "none"
             state.commit_memory(f"market-open {today}: {traded_label} regime={regime_str}")
         finally:
@@ -780,8 +792,7 @@ def _run_full(dry_run: bool = False) -> bool:
     })
 
     if not dry_run:
-        if trades_placed > 0:
-            state.update_weekly_trade_count(weekly_count + trades_placed)
+        # Weekly trade count is derived from TRADE-LOG.md on read; nothing to write here.
         traded_label = ",".join(symbols_traded) if symbols_traded else "none"
         state.commit_memory(f"market-open {today}: {traded_label} regime={regime_str}")
 
@@ -793,6 +804,13 @@ def _run_full(dry_run: bool = False) -> bool:
 
 
 def run(dry_run: bool = False, mode: str = "full") -> bool:
+    # Defense-in-depth: even if invoked outside run.py, refuse to run while paused.
+    try:
+        enforce_kill_switch("market-open")
+    except KillSwitchActive as exc:
+        logger.error("market-open halted by kill switch: %s", exc)
+        return False
+
     if mode == "prepare":
         return _prepare(dry_run)
     elif mode == "execute":

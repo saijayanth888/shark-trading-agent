@@ -24,8 +24,8 @@ _WEEKLY_REVIEW_FILE = _MEMORY_DIR / "WEEKLY-REVIEW.md"
 
 _TRADE_LOG_HEADER = (
     "# Shark Trading Agent — Trade Log\n\n"
-    "| Date | Symbol | Action | Qty | Price | Stop | Thesis | Status |\n"
-    "|------|--------|--------|-----|-------|------|--------|--------|\n"
+    "| Date | Symbol | Action | Qty | Price | Stop | Target | R:R | Thesis | Status |\n"
+    "|------|--------|--------|-----|-------|------|--------|-----|--------|--------|\n"
 )
 
 _RESEARCH_LOG_HEADER = "# Shark Trading Agent — Research Log\n\n"
@@ -45,29 +45,65 @@ def _ensure_file(path: Path, header: str) -> None:
         logger.info("Created %s", path)
 
 
+def _coerce_float(value: Any) -> float:
+    """Tolerant float coercion — '-' / '' / None all map to 0.0 (display-only)."""
+    if value in (None, "", "-"):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_optional(value: Any, fmt: str = "{:.2f}") -> str:
+    """Format a number, or pass through '-' / '' for display."""
+    if value in (None, "", "-"):
+        return "-"
+    try:
+        return fmt.format(float(value))
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def log_trade(trade_data: dict[str, Any]) -> None:
     """
     Append a single trade entry as a markdown table row to TRADE-LOG.md.
 
-    Args:
-        trade_data: Dict with keys:
-            date (str, optional — defaults to today),
-            symbol (str), action (str), qty (int/str),
-            price (float), stop (float), thesis (str).
+    Accepted keys (alias-tolerant — both old and new schemas work):
+        date         (optional, defaults to today)
+        symbol       required
+        action | side          buy / sell / SELL (...)
+        qty
+        price
+        stop
+        target       optional take-profit
+        rr | risk_reward_ratio optional R:R
+        thesis | catalyst      free-text reason
+        status       optional, defaults to OPEN
     """
     _ensure_file(_TRADE_LOG_FILE, _TRADE_LOG_HEADER)
 
     date = trade_data.get("date") or datetime.now().strftime("%Y-%m-%d")
     symbol = trade_data.get("symbol", "")
-    action = trade_data.get("action", "")
+    # Alias tolerance — callers historically use "side", journal originally read "action"
+    action = trade_data.get("action") or trade_data.get("side") or ""
     qty = trade_data.get("qty", "")
-    price = float(trade_data.get("price", 0.0))
-    stop = float(trade_data.get("stop", 0.0))
-    thesis = str(trade_data.get("thesis", ""))[:50]
+    price = _coerce_float(trade_data.get("price"))
+    stop_display = _format_optional(trade_data.get("stop"))
+    target_display = _format_optional(trade_data.get("target"))
+    rr_display = _format_optional(
+        trade_data.get("rr") or trade_data.get("risk_reward_ratio"),
+        fmt="{:.2f}",
+    )
+    # thesis | catalyst alias
+    thesis_raw = trade_data.get("thesis") or trade_data.get("catalyst") or ""
+    thesis = str(thesis_raw)[:50].replace("|", "/")  # don't break the markdown table
+    status = trade_data.get("status", "OPEN")
 
     row = (
         f"| {date} | {symbol} | {action} | {qty} | "
-        f"{price:.2f} | {stop:.2f} | {thesis} | OPEN |\n"
+        f"{price:.2f} | {stop_display} | {target_display} | {rr_display} | "
+        f"{thesis} | {status} |\n"
     )
 
     with _TRADE_LOG_FILE.open("a", encoding="utf-8") as f:

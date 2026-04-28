@@ -12,6 +12,7 @@ from shark.execution.exit_manager import evaluate_exits, compute_dynamic_stop, c
 from shark.agents.trade_reviewer import review_closed_trade, save_lesson
 from shark.memory import handoff, state
 from shark.memory.journal import log_trade
+from shark.memory.kill_switch import enforce_kill_switch, KillSwitchActive
 from shark.signals.distributor import send_email_digest
 from shark.signals.templates import alert_html
 
@@ -25,6 +26,13 @@ HARD_STOP_PCT = -0.07
 def run(dry_run: bool = False) -> bool:
     today = date.today().isoformat()
     actions_taken = []
+
+    # Defense-in-depth: even if invoked outside run.py, refuse to run while paused.
+    try:
+        enforce_kill_switch("midday")
+    except KillSwitchActive as exc:
+        logger.error("midday halted by kill switch: %s", exc)
+        return False
 
     try:
         positions = get_positions()

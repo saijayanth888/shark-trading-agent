@@ -304,29 +304,18 @@ def get_peak_equity() -> float:
     return float(get_portfolio_state().get("peak_equity", 0.0))
 
 
-def update_weekly_trade_count(count: int) -> None:
-    """Write weekly_trade_count: N to PROJECT-CONTEXT.md."""
-    if not _CONTEXT_FILE.exists():
-        return
-
-    text = _CONTEXT_FILE.read_text(encoding="utf-8")
-
-    updated = re.sub(
-        r"(weekly_trade_count\s*[:=]\s*)\d+",
-        lambda m: f"{m.group(1)}{count}",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    if updated == text:
-        updated = text.rstrip() + f"\nweekly_trade_count: {count}\n"
-
-    _CONTEXT_FILE.write_text(updated, encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
-# Weekly trade count
+# Weekly trade count — derived from TRADE-LOG.md (single source of truth)
 # ---------------------------------------------------------------------------
+#
+# Historical note: there used to be an `update_weekly_trade_count(count)` setter
+# that wrote a `weekly_trade_count:` line into PROJECT-CONTEXT.md. The getter
+# below has always derived the count by scanning TRADE-LOG.md, so the setter's
+# writes were never read. The setter has been removed to eliminate the dead
+# write and the misleading API surface. Any historical `weekly_trade_count:`
+# line in PROJECT-CONTEXT.md is harmless and will be overwritten the next time
+# the file is rewritten.
+#
 
 def get_weekly_trade_count() -> int:
     """

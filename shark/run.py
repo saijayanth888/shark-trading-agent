@@ -46,6 +46,7 @@ if _req.exists():
             print("INFO: uv pip install succeeded (pip had failed)", file=sys.stderr)
 
 from shark.context.context_manager import generate_context_briefing, check_context_health
+from shark.memory.kill_switch import enforce_kill_switch, KillSwitchActive
 
 PHASES = {
     "pre-market": "shark.phases.pre_market",
@@ -69,6 +70,13 @@ _TRADING_PHASES = {
     "pre-market", "pre-execute", "market-open",
     "midday", "daily-summary", "weekly-review", "backtest",
     "kb-refresh", "kb-update",
+}
+
+# Phases that the operator kill switch (memory/KILL.flag) blocks.
+# Research-only phases (kb-refresh, kb-update, backtest) are allowed to run
+# while trading is paused so data hygiene continues.
+_KILL_SWITCH_PHASES = {
+    "pre-market", "pre-execute", "market-open", "midday",
 }
 
 _CRITICAL_PACKAGES = {
@@ -224,6 +232,16 @@ def main() -> None:
     if not _verify_env_vars(args.phase):
         print(f"FATAL: Missing environment variables for phase '{args.phase}'.", file=sys.stderr)
         sys.exit(1)
+
+    # Operator kill switch — refuse to run trading phases while memory/KILL.flag exists.
+    if args.phase in _KILL_SWITCH_PHASES:
+        try:
+            enforce_kill_switch(args.phase)
+        except KillSwitchActive as exc:
+            # Distinct exit code (75) so cron / cloud routines can recognise an
+            # operator pause vs an actual failure and skip alerting.
+            print(f"KILL SWITCH: {exc}", file=sys.stderr)
+            sys.exit(75)
 
     # Generate phase-specific context briefing BEFORE execution
     try:
