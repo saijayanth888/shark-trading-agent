@@ -1,6 +1,6 @@
 {
   "source": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv",
-  "fetched_at": "2026-04-28T12:54:34.250204Z",
+  "fetched_at": "2026-04-28T13:28:18.419849Z",
   "ticker_count": 503,
   "constituents": [
     {

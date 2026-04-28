@@ -1,5 +1,5 @@
 {
-  "computed_at": "2026-04-28T12:55:01.227803Z",
+  "computed_at": "2026-04-28T13:28:59.072546Z",
   "source_ticker": "SPY",
   "lookback_bars": 640,
   "day_of_week": {
@@ -7,31 +7,31 @@
       "n": 122,
       "avg_return_pct": 0.1951,
       "win_rate": 0.6557,
-      "median_return_pct": 0.1962
+      "median_return_pct": 0.1952
     },
     "Tue": {
       "n": 133,
-      "avg_return_pct": 0.076,
+      "avg_return_pct": 0.0759,
       "win_rate": 0.5564,
       "median_return_pct": 0.0793
     },
     "Wed": {
       "n": 130,
-      "avg_return_pct": 0.1819,
+      "avg_return_pct": 0.182,
       "win_rate": 0.6077,
-      "median_return_pct": 0.1362
+      "median_return_pct": 0.1376
     },
     "Thu": {
       "n": 125,
-      "avg_return_pct": -0.0628,
+      "avg_return_pct": -0.0629,
       "win_rate": 0.504,
-      "median_return_pct": 0.0042
+      "median_return_pct": 0.0034
     },
     "Fri": {
       "n": 130,
-      "avg_return_pct": 0.0423,
-      "win_rate": 0.5615,
-      "median_return_pct": 0.1051
+      "avg_return_pct": 0.0663,
+      "win_rate": 0.5692,
+      "median_return_pct": 0.106
     }
   },
   "month_of_year": {
@@ -42,13 +42,13 @@
     },
     "Feb": {
       "n": 58,
-      "avg_return_pct": 0.054,
+      "avg_return_pct": 0.0541,
       "win_rate": 0.5517
     },
     "Mar": {
       "n": 63,
-      "avg_return_pct": -0.1292,
-      "win_rate": 0.4286
+      "avg_return_pct": -0.1153,
+      "win_rate": 0.4444
     },
     "Apr": {
       "n": 61,
@@ -62,12 +62,12 @@
     },
     "Jun": {
       "n": 39,
-      "avg_return_pct": 0.2032,
+      "avg_return_pct": 0.2189,
       "win_rate": 0.6667
     },
     "Jul": {
       "n": 44,
-      "avg_return_pct": 0.0795,
+      "avg_return_pct": 0.0796,
       "win_rate": 0.5909
     },
     "Aug": {
@@ -77,7 +77,7 @@
     },
     "Sep": {
       "n": 41,
-      "avg_return_pct": 0.1254,
+      "avg_return_pct": 0.1397,
       "win_rate": 0.6098
     },
     "Oct": {
@@ -92,28 +92,28 @@
     },
     "Dec": {
       "n": 63,
-      "avg_return_pct": 0.0202,
+      "avg_return_pct": 0.0366,
       "win_rate": 0.5397
     }
   },
   "fomc_drift": {
     "pre_fomc_day": {
       "n": 10,
-      "avg_return_pct": -0.1567,
+      "avg_return_pct": -0.1566,
       "win_rate": 0.3,
-      "median_return_pct": -0.0533
+      "median_return_pct": -0.0536
     },
     "fomc_day": {
       "n": 10,
-      "avg_return_pct": -0.0354,
+      "avg_return_pct": -0.0062,
       "win_rate": 0.4,
-      "median_return_pct": -0.218
+      "median_return_pct": -0.2187
     },
     "post_fomc_day": {
       "n": 10,
-      "avg_return_pct": -0.2495,
-      "win_rate": 0.4,
-      "median_return_pct": -0.2078
+      "avg_return_pct": -0.1347,
+      "win_rate": 0.5,
+      "median_return_pct": -0.0573
     }
   }
 }
