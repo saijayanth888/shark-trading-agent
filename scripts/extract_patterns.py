@@ -208,6 +208,8 @@ def extract_sector_rotation() -> int:
         ret_5d = float(close.iloc[-1] / close.iloc[-6] - 1) if len(close) >= 6 else 0.0
         ret_20d = float(close.iloc[-1] / close.iloc[-21] - 1) if len(close) >= 21 else 0.0
         ret_60d = float(close.iloc[-1] / close.iloc[-61] - 1) if len(close) >= 61 else 0.0
+        # 126-day = ~6 months — academic standard for sector momentum (Asness 1997, Faber 2007)
+        ret_126d = float(close.iloc[-1] / close.iloc[-127] - 1) if len(close) >= 127 else ret_60d
 
         rankings[sector_name] = {
             "etf": etf,
@@ -215,9 +217,10 @@ def extract_sector_rotation() -> int:
             "return_5d_pct": round(ret_5d * 100, 4),
             "return_20d_pct": round(ret_20d * 100, 4),
             "return_60d_pct": round(ret_60d * 100, 4),
+            "return_126d_pct": round(ret_126d * 100, 4),
         }
 
-    # Build leadership ranking by 20d return
+    # Short-term leadership ranking (20d) — for current momentum reporting
     sorted_by_20d = sorted(
         rankings.items(),
         key=lambda kv: kv[1].get("return_20d_pct", 0),
@@ -228,11 +231,28 @@ def extract_sector_rotation() -> int:
         for i, (name, stats) in enumerate(sorted_by_20d)
     ]
 
+    # Long-term leadership ranking (126d / 6m) — academic gold standard for sector momentum.
+    # Used by pre-market scoring as a position-sizing input.
+    sorted_by_126d = sorted(
+        rankings.items(),
+        key=lambda kv: kv[1].get("return_126d_pct", 0),
+        reverse=True,
+    )
+    momentum_6m_ranking = [
+        {"rank": i + 1, "sector": name, "return_126d_pct": stats["return_126d_pct"]}
+        for i, (name, stats) in enumerate(sorted_by_126d)
+    ]
+    top_3_sectors = [r["sector"] for r in momentum_6m_ranking[:3]]
+    bottom_3_sectors = [r["sector"] for r in momentum_6m_ranking[-3:]]
+
     payload = {
         "computed_at": datetime.utcnow().isoformat() + "Z",
         "lookback_days": 60,
         "sectors": rankings,
-        "leadership_ranking": leadership,
+        "leadership_ranking": leadership,           # 20-day (short-term)
+        "momentum_6m_ranking": momentum_6m_ranking,  # 126-day (long-term, used for scoring)
+        "top_3_sectors": top_3_sectors,              # buy signal
+        "bottom_3_sectors": bottom_3_sectors,        # avoid signal
     }
     _write_json(_PATTERNS_DIR / "sector_rotation.json", payload)
     return len(rankings)

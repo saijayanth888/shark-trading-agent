@@ -292,7 +292,7 @@ def get_bars(
     client = _get_data_client()
 
     from alpaca.data.requests import StockBarsRequest  # type: ignore[import]
-    from alpaca.data.enums import DataFeed  # type: ignore[import]
+    from alpaca.data.enums import DataFeed, Adjustment  # type: ignore[import]
 
     # Calculate a safe start date — Alpaca can return 0 bars without one.
     # Use a generous calendar-day multiplier to cover weekends/holidays.
@@ -314,6 +314,7 @@ def get_bars(
         start=start_dt,
         limit=limit,
         feed=feed,
+        adjustment=Adjustment.ALL,  # split + dividend adjusted (CRITICAL for backtesting)
     )
     bars_response = client.get_stock_bars(request)
     bars = bars_response.df
@@ -406,7 +407,7 @@ def get_bars_multi(
     client = _get_data_client()
 
     from alpaca.data.requests import StockBarsRequest  # type: ignore[import]
-    from alpaca.data.enums import DataFeed  # type: ignore[import]
+    from alpaca.data.enums import DataFeed, Adjustment  # type: ignore[import]
 
     # Generous start date for the requested limit
     _tf_day_multiplier = {
@@ -418,6 +419,7 @@ def get_bars_multi(
     feed_str = os.environ.get("ALPACA_DATA_FEED", "iex").lower()
     feed_map = {"iex": DataFeed.IEX, "sip": DataFeed.SIP, "otc": DataFeed.OTC}
     feed = feed_map.get(feed_str, DataFeed.IEX)
+    adjustment = Adjustment.ALL  # split + dividend adjusted (CRITICAL for backtesting)
 
     out: dict[str, pd.DataFrame] = {}
     total = len(symbols)
@@ -430,6 +432,7 @@ def get_bars_multi(
         try:
             request = StockBarsRequest(
                 symbol_or_symbols=batch,
+                adjustment=adjustment,
                 timeframe=tf,
                 start=start_dt,
                 feed=feed,

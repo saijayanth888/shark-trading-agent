@@ -45,6 +45,11 @@ _PENALTY_DOW_UNFAVORABLE = -1
 _BONUS_FOMC_FAVORABLE = 2
 _PENALTY_FOMC_UNFAVORABLE = -3
 
+# Sector momentum overlay (Asness 1997, Faber 2007 — 6-month sector momentum)
+_BONUS_TOP_SECTOR = 3        # ticker is in a top-3 sector by 6m momentum
+_PENALTY_BOTTOM_SECTOR = -5  # ticker is in a bottom-3 sector — strong avoid signal
+_SECTOR_MOMENTUM_MIN_SPREAD = 5.0  # min %-pt spread between top and bottom for overlay to fire
+
 
 @dataclass
 class HistoricalEdge:
@@ -189,7 +194,48 @@ def compute_historical_edge(
         logger.debug("fomc edge lookup failed: %s", exc)
 
     # ---------------------------------------------------------------
-    # 5) Compiled lessons — if any recent lesson explicitly mentions this ticker, log it
+    # 5) Sector momentum overlay (Asness 1997, Faber 2007)
+    #    Top-3 sectors by 6m momentum get a bonus; bottom-3 get a penalty.
+    #    Only fires when the spread between best/worst is meaningful (> 5 pct pts)
+    #    to avoid noise during sideways markets.
+    # ---------------------------------------------------------------
+    try:
+        from shark.data.knowledge_base import _read_json, _PATTERNS_DIR  # type: ignore
+        from shark.data.watchlist import get_ticker_sector  # type: ignore
+        sector_data = _read_json(_PATTERNS_DIR / "sector_rotation.json") or {}
+        ranking = sector_data.get("momentum_6m_ranking", [])
+        if ranking:
+            spread = (
+                ranking[0].get("return_126d_pct", 0)
+                - ranking[-1].get("return_126d_pct", 0)
+            )
+            if spread >= _SECTOR_MOMENTUM_MIN_SPREAD:
+                ticker_sector = get_ticker_sector(sym)
+                top_3 = sector_data.get("top_3_sectors", [])
+                bottom_3 = sector_data.get("bottom_3_sectors", [])
+                if ticker_sector in top_3:
+                    edge.bonus += _BONUS_TOP_SECTOR
+                    rank = next(
+                        (r["rank"] for r in ranking if r["sector"] == ticker_sector),
+                        None,
+                    )
+                    edge.reasons.append(
+                        f"sector tailwind: {ticker_sector} ranked #{rank} 6m"
+                    )
+                elif ticker_sector in bottom_3:
+                    edge.bonus += _PENALTY_BOTTOM_SECTOR
+                    rank = next(
+                        (r["rank"] for r in ranking if r["sector"] == ticker_sector),
+                        None,
+                    )
+                    edge.reasons.append(
+                        f"sector headwind: {ticker_sector} ranked #{rank} 6m"
+                    )
+    except Exception as exc:
+        logger.debug("sector overlay lookup failed for %s: %s", sym, exc)
+
+    # ---------------------------------------------------------------
+    # 6) Compiled lessons — if any recent lesson explicitly mentions this ticker, log it
     # ---------------------------------------------------------------
     try:
         lessons = load_compiled_lessons(limit=5)

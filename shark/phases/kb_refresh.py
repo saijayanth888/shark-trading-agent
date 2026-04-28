@@ -68,25 +68,39 @@ def run(dry_run: bool = False) -> bool:
         save_bars_metadata, merge_bars,
     )
 
+    # Detect legacy KB without adjustment metadata — must force full re-refresh
+    # because old bars were pulled with raw (unadjusted) prices, which break
+    # any cross-split/dividend math (sector returns, regime stats, backtest).
+    from shark.data.knowledge_base import load_bars_metadata
+    existing_meta = load_bars_metadata()
+    needs_format_upgrade = existing_meta.get("adjustment") != "all"
+
     needs_full_pull: list[str] = []
     needs_delta_pull: list[str] = []
     today_dt = date.today()
 
-    for sym in universe:
-        existing = load_historical_bars(sym)
-        if existing.empty or len(existing) < 100:
-            needs_full_pull.append(sym)
-            continue
-        try:
-            last_bar_date = existing["timestamp"].max().date()
-        except Exception:
-            needs_full_pull.append(sym)
-            continue
-        days_since = (today_dt - last_bar_date).days
-        if days_since > 30:
-            needs_full_pull.append(sym)
-        else:
-            needs_delta_pull.append(sym)
+    if needs_format_upgrade:
+        logger.warning(
+            "Legacy KB detected (adjustment != 'all') — forcing full re-refresh "
+            "of all %d tickers to apply split + dividend adjustment.", len(universe),
+        )
+        needs_full_pull = list(universe)
+    else:
+        for sym in universe:
+            existing = load_historical_bars(sym)
+            if existing.empty or len(existing) < 100:
+                needs_full_pull.append(sym)
+                continue
+            try:
+                last_bar_date = existing["timestamp"].max().date()
+            except Exception:
+                needs_full_pull.append(sym)
+                continue
+            days_since = (today_dt - last_bar_date).days
+            if days_since > 30:
+                needs_full_pull.append(sym)
+            else:
+                needs_delta_pull.append(sym)
 
     logger.info(
         "Classified universe: %d full pulls (new/stale), %d delta pulls (incremental)",
@@ -158,6 +172,7 @@ def run(dry_run: bool = False) -> bool:
         "last_refresh": started_at.isoformat() + "Z",
         "ticker_count": saved_count,
         "feed": os.environ.get("ALPACA_DATA_FEED", "iex"),
+        "adjustment": "all",  # split + dividend adjusted (set by alpaca_data.py)
         "universe_size": len(universe),
         "full_pulls": len(needs_full_pull),
         "delta_pulls": len(needs_delta_pull),

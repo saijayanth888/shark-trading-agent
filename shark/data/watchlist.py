@@ -254,17 +254,63 @@ def get_full_watchlist() -> list[str]:
 # Sector lookup (works for both core and dynamic tickers)
 # ---------------------------------------------------------------------------
 
+_SP500_SECTOR_CACHE: dict[str, str] | None = None
+
+
+def _load_sp500_sector_map() -> dict[str, str]:
+    """Load full S&P 500 sector mapping from kb/universe/sp500.json (cached).
+
+    Returns empty dict if KB hasn't been refreshed yet (cold start).
+    Maps GICS sector names to our internal sector names so they align with SECTOR_ETFS.
+    """
+    global _SP500_SECTOR_CACHE
+    if _SP500_SECTOR_CACHE is not None:
+        return _SP500_SECTOR_CACHE
+
+    sp500_path = _REPO_ROOT / "kb" / "universe" / "sp500.json"
+    if not sp500_path.exists():
+        _SP500_SECTOR_CACHE = {}
+        return _SP500_SECTOR_CACHE
+
+    try:
+        data = json.loads(sp500_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        _SP500_SECTOR_CACHE = {}
+        return _SP500_SECTOR_CACHE
+
+    mapping: dict[str, str] = {}
+    for entry in data.get("constituents", []):
+        sym = entry.get("symbol", "").upper()
+        sector = entry.get("sector", "")
+        if not sym or not sector:
+            continue
+        # GICS names from datasets/s-and-p-500-companies use the same labels as SECTOR_ETFS
+        # except "Information Technology" → "Technology"
+        if sector == "Information Technology":
+            sector = "Technology"
+        if sector in ALLOWED_SECTORS:
+            mapping[sym] = sector
+
+    _SP500_SECTOR_CACHE = mapping
+    return mapping
+
+
 def get_ticker_sector(symbol: str) -> str:
     """Return sector for a ticker.
 
-    Checks core mapping first, then dynamic entries, falls back to 'Technology'.
+    Resolution order: core mapping → SP500 KB → dynamic entries → fallback.
     """
-    if symbol in _CORE_TICKER_SECTOR:
-        return _CORE_TICKER_SECTOR[symbol]
+    sym = symbol.upper()
+    if sym in _CORE_TICKER_SECTOR:
+        return _CORE_TICKER_SECTOR[sym]
+
+    sp500 = _load_sp500_sector_map()
+    if sym in sp500:
+        return sp500[sym]
 
     # Check dynamic entries
     for entry in _parse_dynamic_entries():
-        if entry.get("symbol") == symbol:
+        if entry.get("symbol") == sym:
             sector = entry.get("sector", "")
             if sector in ALLOWED_SECTORS:
                 return sector
