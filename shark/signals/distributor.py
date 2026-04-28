@@ -78,13 +78,23 @@ def _ipv4_urlopen(req, **kwargs):
 
     class _IPv4HTTPSConnection(http.client.HTTPSConnection):
         def connect(self):
-            self.sock = socket.create_connection(
-                (self.host, self.port),
-                timeout=self.timeout,
-                source_address=self.source_address,
+            # Force AF_INET (IPv4) — getaddrinfo with family=0 tries IPv6 first
+            # which fails with "address family not supported" in some sandboxes.
+            infos = socket.getaddrinfo(
+                self.host, self.port, socket.AF_INET, socket.SOCK_STREAM,
             )
+            if not infos:
+                raise OSError(f"No IPv4 address found for {self.host}")
+            family, socktype, proto, _canonname, sockaddr = infos[0]
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(self.timeout)
+            try:
+                sock.connect(sockaddr)
+            except Exception:
+                sock.close()
+                raise
             ctx = self._context or ssl.create_default_context()
-            self.sock = ctx.wrap_socket(self.sock, server_hostname=self.host)
+            self.sock = ctx.wrap_socket(sock, server_hostname=self.host)
 
     class _IPv4HTTPSHandler(urllib.request.HTTPSHandler):
         def https_open(self, req):

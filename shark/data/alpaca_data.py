@@ -292,6 +292,7 @@ def get_bars(
     client = _get_data_client()
 
     from alpaca.data.requests import StockBarsRequest  # type: ignore[import]
+    from alpaca.data.enums import DataFeed  # type: ignore[import]
 
     # Calculate a safe start date — Alpaca can return 0 bars without one.
     # Use a generous calendar-day multiplier to cover weekends/holidays.
@@ -301,11 +302,18 @@ def get_bars(
     cal_days = int(limit * _tf_day_multiplier.get(timeframe, 2.0)) + 10
     start_dt = datetime.now(timezone.utc) - timedelta(days=cal_days)
 
+    # Explicit feed: free-tier accounts only have IEX access; SIP requires paid.
+    # Override with ALPACA_DATA_FEED env var (e.g. "sip" for paid accounts).
+    feed_str = os.environ.get("ALPACA_DATA_FEED", "iex").lower()
+    feed_map = {"iex": DataFeed.IEX, "sip": DataFeed.SIP, "otc": DataFeed.OTC}
+    feed = feed_map.get(feed_str, DataFeed.IEX)
+
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
         timeframe=tf,
         start=start_dt,
         limit=limit,
+        feed=feed,
     )
     bars_response = client.get_stock_bars(request)
     bars = bars_response.df

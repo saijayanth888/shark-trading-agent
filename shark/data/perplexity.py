@@ -121,6 +121,7 @@ def _fetch_batch(tickers: list[str]) -> dict[str, Any]:
             {"role": "user", "content": user_prompt},
         ],
         "max_tokens": 4096,
+        "temperature": 0.0,
         "return_citations": True,
     }
 
