@@ -47,6 +47,10 @@ memory/archive/
 # Ephemeral context briefing (regenerated each phase, never commit)
 memory/CONTEXT-BRIEFING.md
 
+# Ephemeral market-open handoff (rewritten by every run)
+memory/market-open-analysis.json
+memory/market-open-decisions.json
+
 # Distribution
 dist/
 build/

@@ -421,25 +421,116 @@ def get_open_orders(side: str | None = None) -> list[dict[str, Any]]:
         return []
 
 
+@_retry_order(max_attempts=3, base_delay=1.0)
+def _place_true_bracket(
+    symbol: str,
+    qty: int,
+    stop_loss: float,
+    take_profit: float,
+) -> dict[str, Any]:
+    """Submit a single Alpaca BRACKET parent with stop+target legs (OCO).
+
+    Alpaca attaches the stop-loss + take-profit limit children atomically
+    once the parent market order fills. This is the preferred path for
+    LLM-driven entries because the broker enforces the exact stop and target
+    the analyst computed (no slippage between thesis and execution).
+    """
+    client = _get_client()
+    try:
+        from alpaca.trading.requests import (  # type: ignore[import]
+            MarketOrderRequest,
+            TakeProfitRequest,
+            StopLossRequest,
+        )
+        from alpaca.trading.enums import (  # type: ignore[import]
+            OrderClass,
+            OrderSide,
+            TimeInForce,
+        )
+
+        order_data = MarketOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.GTC,
+            order_class=OrderClass.BRACKET,
+            take_profit=TakeProfitRequest(limit_price=round(take_profit, 2)),
+            stop_loss=StopLossRequest(stop_price=round(stop_loss, 2)),
+        )
+        order = client.submit_order(order_data=order_data)
+        result = _order_to_dict(order)
+        order_id = result["order_id"]
+
+        logger.info(
+            "Bracket parent submitted — %s x%d | id=%s | stop=$%.2f target=$%.2f",
+            symbol, qty, order_id, stop_loss, take_profit,
+        )
+
+        # Poll for parent fill so we can return an accurate fill price
+        if result.get("filled_price") is None:
+            filled = _poll_for_fill(client, order_id)
+            if filled:
+                result = filled
+
+        # Validate fill status
+        status = (result.get("status") or "").lower()
+        if status in ("canceled", "cancelled", "expired", "rejected"):
+            raise RuntimeError(
+                f"Bracket parent for {symbol} was {status} (order_id={order_id})"
+            )
+
+        return {
+            "order_id": order_id,
+            "stop_order_id": None,  # children are managed by Alpaca, no separate id surfaced
+            "fill_price": result.get("filled_price"),
+            "stop_price": round(stop_loss, 2),
+            "take_profit": round(take_profit, 2),
+            "symbol": symbol,
+            "qty": qty,
+            "order_class": "bracket",
+        }
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        logger.error("Bracket order failed for %s: %s", symbol, exc)
+        raise RuntimeError(f"Alpaca bracket order failed for {symbol}: {exc}") from exc
+
+
 def place_bracket_order(
     symbol: str,
     qty: int,
     trail_pct: float = 10.0,
+    stop_loss: float | None = None,
+    take_profit: float | None = None,
 ) -> dict[str, Any]:
     """
-    Place a market buy entry and immediately attach a GTC trailing stop.
+    Place a market buy entry plus protective exits.
+
+    Two execution paths:
+
+    1. **True bracket** (preferred) — when both stop_loss and take_profit are
+       given, submit a single Alpaca BRACKET parent. Alpaca attaches an OCO
+       pair (stop-loss + take-profit limit) atomically once the parent fills.
+       Both legs use GTC.
+
+    2. **Trailing-stop fallback** — when stop_loss/take_profit are missing,
+       place a market buy then attach a separate trailing-stop sell.
+       The position has no profit target.
 
     Includes duplicate trade guard — will not open a second position if one
-    already exists.  If the stop placement fails after a confirmed fill, the
+    already exists. If protection placement fails after a confirmed fill, the
     position is closed immediately to avoid an unprotected open position.
 
     Args:
         symbol: Ticker symbol.
         qty: Number of shares to buy.
-        trail_pct: Trailing stop percentage (default 10.0%).
+        trail_pct: Trailing stop percentage (used only on the fallback path).
+        stop_loss: Hard stop price for the bracket child (optional).
+        take_profit: Limit price for the take-profit child (optional).
 
     Returns:
-        Dict with: order_id, stop_order_id, fill_price, stop_price, symbol, qty.
+        Dict with: order_id, stop_order_id, fill_price, stop_price, symbol, qty,
+        plus take_profit when bracket mode is used.
 
     Raises:
         RuntimeError: If the entry order fails or if stop placement fails
@@ -456,6 +547,11 @@ def place_bracket_order(
             f"Duplicate trade blocked: already holding {symbol} x{existing['qty']}"
         )
 
+    # Path 1 — true Alpaca BRACKET when LLM provided both legs
+    if stop_loss is not None and take_profit is not None:
+        return _place_true_bracket(symbol, qty, float(stop_loss), float(take_profit))
+
+    # Path 2 — legacy trailing-stop fallback
     # Step 1: Place market buy (with fill polling)
     entry = place_order(symbol, qty, "buy", "market")
     order_id = entry["order_id"]

@@ -7,10 +7,7 @@ cd /repo && (python -m pip install -q --no-cache-dir --prefer-binary --break-sys
 
 **Step 2 — Analyze (your native intelligence, no API key needed):**
 
-Read `memory/market-open-analysis.json`. If `blocked` key is present, or `candidates` is empty, write an empty decisions file and skip to Step 3:
-```json
-{"decisions": []}
-```
+Read `memory/market-open-analysis.json`. If `blocked` key is present, or `candidates` is empty, **skip Step 2 entirely** — the prepare step has already pre-written an empty decisions file at `memory/market-open-decisions.json` with today's date, and Step 3 will handle the no-trade case automatically.
 
 For each candidate in `candidates`, reason as bull analyst + bear analyst + final decision arbiter. **Use `setup_tag` to weight your analysis:**
 
@@ -19,10 +16,13 @@ For each candidate in `candidates`, reason as bull analyst + bear analyst + fina
 - `regime_high_winrate` — historical win rate >65% in the current regime.
 - `momentum` — generic momentum entry; rely on technicals + Perplexity intel only.
 
-Then write `memory/market-open-decisions.json`:
+**Important:** `stop_loss` and `target_price` are sent verbatim to the broker as a real bracket order (atomic stop + take-profit OCO). Pick them carefully — typical practice is `stop_loss = entry - 2*ATR` and `target_price = entry + 4*ATR` (R:R 2.0). The executor re-derives R:R from these fields and rejects the trade if math is inconsistent or below 1.8.
+
+Overwrite `memory/market-open-decisions.json` with:
 
 ```json
 {
+  "date": "YYYY-MM-DD",
   "decisions": [
     {
       "symbol": "TICKER",
@@ -41,8 +41,12 @@ Then write `memory/market-open-decisions.json`:
 }
 ```
 
-Hard rules (same as CLAUDE.md):
+Use the **same `date` value** that appears in `analysis.json` so the executor accepts the file.
+
+Hard rules (re-enforced server-side — defense-in-depth):
+
 - Only `decision: BUY` if confidence >= 0.70 AND risk_reward_ratio >= 2.0
+- `stop_loss` must be below `entry_price`, `target_price` above it, and the derived ratio must be >= 1.8
 - If `regime` contains BEAR → NO new longs
 - Total BUY decisions must not exceed `max_trades_remaining`
 

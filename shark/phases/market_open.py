@@ -34,6 +34,36 @@ _DECISIONS_FILE = Path(_REPO_ROOT) / "memory" / "market-open-decisions.json"
 MAX_TRADES_PER_RUN = 3
 _EARNINGS_BLOCK_DAYS = 2
 
+# Server-side hard floors — duplicate the rules in routines/market-open.md
+# so a misbehaving LLM cannot place sub-quality trades.
+_MIN_CONFIDENCE = 0.70
+_MIN_RISK_REWARD = 2.0          # claimed by LLM
+_MIN_RISK_REWARD_TOL = 1.8      # derived from stop/target/entry, small tolerance
+
+
+def _verify_risk_reward(
+    entry: float,
+    stop: float | int | str | None,
+    target: float | int | str | None,
+) -> float | None:
+    """Recompute R:R = (target - entry) / (entry - stop). Returns None on bad input.
+
+    Defends against LLM math errors and adversarial outputs (e.g. stop above entry).
+    """
+    if stop is None or target is None:
+        return None
+    try:
+        s = float(stop)
+        t = float(target)
+        e = float(entry)
+    except (TypeError, ValueError):
+        return None
+    risk = e - s
+    reward = t - e
+    if risk <= 0 or reward <= 0:
+        return None
+    return reward / risk
+
 # Sector mappings now live in shark.data.watchlist (single source of truth)
 # _TICKER_SECTOR → use get_ticker_sector(symbol)
 # _SECTOR_ETFS → imported directly
@@ -278,6 +308,12 @@ def _prepare(dry_run: bool = False) -> bool:
     today = date.today().isoformat()
     logger.info("market_open PREPARE — date=%s dry_run=%s", today, dry_run)
 
+    # Bugs C+D+E — always pre-write an empty, today-stamped decisions stub so
+    # any stale file from a prior run is wiped. If Step 2 (LLM) fails or is
+    # skipped, _execute will see today's date with zero decisions = safe no-op.
+    _DECISIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _DECISIONS_FILE.write_text(json.dumps({"date": today, "decisions": []}))
+
     def _write_blocked(reason: str) -> bool:
         _ANALYSIS_FILE.parent.mkdir(parents=True, exist_ok=True)
         _ANALYSIS_FILE.write_text(json.dumps({"date": today, "blocked": reason, "candidates": []}))
@@ -401,6 +437,23 @@ def _execute(dry_run: bool = False) -> bool:
         logger.error("Failed to read decisions/analysis files", exc_info=True)
         return False
 
+    # Bug C — reject stale files. _prepare always pre-writes today-stamped
+    # decisions, so any mismatch means yesterday's run partially survived.
+    decisions_date = decisions_data.get("date")
+    analysis_date = analysis_data.get("date")
+    if decisions_date != today:
+        logger.error(
+            "Refusing to execute — decisions.date=%s (expected %s). Stale file.",
+            decisions_date, today,
+        )
+        return False
+    if analysis_date != today:
+        logger.error(
+            "Refusing to execute — analysis.date=%s (expected %s). Stale file.",
+            analysis_date, today,
+        )
+        return False
+
     candidate_map = {c["symbol"]: c for c in analysis_data.get("candidates", [])}
     regime_str = analysis_data.get("regime", "UNKNOWN")
     weekly_count = state.get_weekly_trade_count()
@@ -425,23 +478,69 @@ def _execute(dry_run: bool = False) -> bool:
             logger.warning("%s — no matching candidate data, skipping", symbol)
             continue
 
+        # === Server-side hard rules (defense-in-depth, see Bug B + F) ===
+        confidence = float(dec.get("confidence", 0) or 0)
+        claimed_rr = float(dec.get("risk_reward_ratio", 0) or 0)
+        if confidence < _MIN_CONFIDENCE:
+            logger.info(
+                "%s rejected — confidence %.2f < %.2f floor",
+                symbol, confidence, _MIN_CONFIDENCE,
+            )
+            continue
+        if claimed_rr < _MIN_RISK_REWARD:
+            logger.info(
+                "%s rejected — claimed R:R %.2f < %.2f floor",
+                symbol, claimed_rr, _MIN_RISK_REWARD,
+            )
+            continue
+
         qty = candidate["risk_check"].get("adjusted_size", candidate["qty"])
         trail_pct = candidate["trail_pct"]
         current_price = candidate["current_price"]
         atr = candidate["technicals"]["atr_14"]
 
+        # Re-derive R:R from stop/target/entry — never trust the LLM's math
+        llm_stop = dec.get("stop_loss")
+        llm_target = dec.get("target_price")
+        derived_rr = _verify_risk_reward(current_price, llm_stop, llm_target)
+        if derived_rr is None:
+            logger.info(
+                "%s rejected — invalid stop/target (entry=%.2f stop=%s target=%s)",
+                symbol, current_price, llm_stop, llm_target,
+            )
+            continue
+        if derived_rr < _MIN_RISK_REWARD_TOL:
+            logger.info(
+                "%s rejected — derived R:R %.2f < %.2f tolerance "
+                "(LLM claimed %.2f; entry=%.2f stop=%.2f target=%.2f)",
+                symbol, derived_rr, _MIN_RISK_REWARD_TOL,
+                claimed_rr, current_price, float(llm_stop), float(llm_target),
+            )
+            continue
+
         logger.info(
-            "%s EXECUTE qty=%d trail=%.1f%% confidence=%.2f rr=%.1f",
-            symbol, qty, trail_pct,
-            dec.get("confidence", 0), dec.get("risk_reward_ratio", 0),
+            "%s EXECUTE qty=%d confidence=%.2f rr=%.2f stop=$%.2f target=$%.2f",
+            symbol, qty, confidence, derived_rr,
+            float(llm_stop), float(llm_target),
         )
 
         if dry_run:
-            logger.info("[DRY RUN] Would place bracket order: %s x%d", symbol, qty)
+            logger.info(
+                "[DRY RUN] Would place bracket: %s x%d stop=$%.2f target=$%.2f",
+                symbol, qty, float(llm_stop), float(llm_target),
+            )
             continue
 
         try:
-            execution = place_bracket_order(symbol, qty, trail_pct=trail_pct)
+            # Pass LLM-computed stop + target into the broker so they actually
+            # take effect (see Bug A). Trailing-pct stays as fallback only.
+            execution = place_bracket_order(
+                symbol,
+                qty,
+                trail_pct=trail_pct,
+                stop_loss=float(llm_stop),
+                take_profit=float(llm_target),
+            )
         except Exception:
             logger.error("Failed to place order for %s", symbol, exc_info=True)
             continue
@@ -497,13 +596,16 @@ def _execute(dry_run: bool = False) -> bool:
     })
 
     if not dry_run:
-        if trades_placed > 0:
-            state.update_weekly_trade_count(weekly_count + trades_placed)
-        traded_label = ",".join(symbols_traded) if symbols_traded else "none"
-        state.commit_memory(f"market-open {today}: {traded_label} regime={regime_str}")
-        # Clean up ephemeral files — don't leave stale decisions for the next run
-        _DECISIONS_FILE.unlink(missing_ok=True)
-        _ANALYSIS_FILE.unlink(missing_ok=True)
+        try:
+            if trades_placed > 0:
+                state.update_weekly_trade_count(weekly_count + trades_placed)
+            traded_label = ",".join(symbols_traded) if symbols_traded else "none"
+            state.commit_memory(f"market-open {today}: {traded_label} regime={regime_str}")
+        finally:
+            # Bug D — always clean up so a failed commit can't leave stale
+            # decisions behind for tomorrow's run.
+            _DECISIONS_FILE.unlink(missing_ok=True)
+            _ANALYSIS_FILE.unlink(missing_ok=True)
 
     logger.info(
         "market_open EXECUTE complete — trades=%d symbols=%s",
