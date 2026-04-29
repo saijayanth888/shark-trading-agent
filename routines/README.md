@@ -1,18 +1,22 @@
 # Shark Agent — Cloud Routines
 
-Nine scheduled routines run on various cadences. Configure in Claude Code Cloud → Routines.
+Five scheduled routines fit the cloud subscription limit. Configure in Claude Code Cloud → Routines.
 
-| Routine | File | Cron (America/New_York) | Time ET |
-|---------|------|--------------------------|---------|
-| Pre-market research | pre-market.md | `0 6 * * 1-5` | 6:00 AM Mon-Fri |
-| Pre-execute validation | pre-execute.md | `45 9 * * 1-5` | 9:45 AM Mon-Fri |
-| Market-open execution | market-open.md | `0 10 * * 1-5` | 10:00 AM Mon-Fri |
-| Midday scan | midday.md | `0 13 * * 1-5` | 1:00 PM Mon-Fri |
-| Daily summary | daily-summary.md | `15 16 * * 1-5` | 4:15 PM Mon-Fri |
-| **KB daily update** | **kb-update.md** | **`30 17 * * 1-5`** | **5:30 PM Mon-Fri** |
-| Weekly review | weekly-review.md | `0 17 * * 5` | 5:00 PM Fri |
-| Weekly backtest | backtest.md | `0 18 * * 5` | 6:00 PM Fri |
-| **KB weekly refresh** | **kb-refresh.md** | **`0 8 * * 0`** | **8:00 AM Sun** |
+| # | Routine | File | Cron (America/New_York) | Time ET | Phases Included |
+|---|---------|------|--------------------------|---------|-----------------|
+| 1 | Pre-market research | pre-market.md | `0 6 * * 1-5` | 6:00 AM Mon-Fri | pre-market |
+| 2 | Trading (validate + execute) | trading.md | `45 9 * * 1-5` | 9:45 AM Mon-Fri | pre-execute → market-open |
+| 3 | Midday scan | midday.md | `0 13 * * 1-5` | 1:00 PM Mon-Fri | midday |
+| 4 | End-of-day | eod.md | `15 16 * * 1-5` | 4:15 PM Mon-Fri | daily-summary → kb-update |
+| 5 | Weekly (review + backtest + KB) | weekly.md | `0 17 * * 5` | 5:00 PM Fri | weekly-review → backtest → kb-refresh |
+
+### Consolidation Notes
+
+Previously 9 routines; consolidated to 5 by merging sequential phases:
+
+- **trading.md** = pre-execute (validate candidates) → market-open (3-step: prepare → analyze → execute)
+- **eod.md** = daily-summary (EOD snapshot + email + outcome resolution) → kb-update (append today's bars)
+- **weekly.md** = weekly-review → backtest → kb-refresh (full pattern recompute, moved from Sunday to Friday evening since EOD routine already appended Friday's bars)
 
 ### KB (Knowledge Base) Routines
 
@@ -20,11 +24,11 @@ The KB is a self-contained historical intelligence store in `kb/` that lets all
 trading routines fast-load cached data and apply rule-based historical edge
 scoring without external dependencies.
 
-- **kb-refresh** (Sunday 8 AM) — incremental weekly rebuild: full pull only for
-  new/stale tickers, delta pulls for fresh ones. Bars are fetched with
-  `Adjustment.ALL` (split + dividend adjusted — required for correct sector and
-  regime math). Auto-detects legacy unadjusted KBs and forces a one-time full
-  refresh to upgrade.
+- **kb-refresh** (Friday 5 PM, inside weekly routine) — incremental weekly
+  rebuild: full pull only for new/stale tickers, delta pulls for fresh ones.
+  Bars are fetched with `Adjustment.ALL` (split + dividend adjusted — required
+  for correct sector and regime math). Auto-detects legacy unadjusted KBs and
+  forces a one-time full refresh to upgrade.
   Recomputes all statistical patterns:
     - `calendar_effects.json` (day-of-week, FOMC drift)
     - `sector_rotation.json`  (6m sector momentum, top_3 / bottom_3)
@@ -34,9 +38,9 @@ scoring without external dependencies.
   Also prunes stale PEAD setup files (>90 days, no recorded outcomes).
   Steady-state runtime: ~3-5 min.
 
-- **kb-update** (Mon-Fri 5:30 PM) — light daily increment: appends today's bar
-  to each ticker file. ~1-2 min runtime. Patterns are NOT recomputed daily
-  (that runs only on Sundays for stability).
+- **kb-update** (Mon-Fri 4:15 PM, inside eod routine) — light daily increment:
+  appends today's bar to each ticker file. ~1-2 min runtime. Patterns are NOT
+  recomputed daily (that runs only on Fridays for stability).
 
 ### Strategy Overlays (read by pre-market scoring)
 

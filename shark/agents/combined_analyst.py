@@ -231,6 +231,27 @@ def analyze_symbol(
         logger.info("ANTHROPIC_API_KEY not set — using rule-based analysis for %s", symbol)
         return _rule_based_analyze(symbol, technicals, perplexity_intel, risk_check)
 
+    # --- Debate mode: route to adversarial debate if configured ---
+    debate_rounds = int(os.environ.get("SHARK_DEBATE_ROUNDS", "1"))
+    if debate_rounds > 0:
+        from shark.agents.debate_orchestrator import run_debate
+        regime_str = risk_check.get("regime", "")
+        rs_data = risk_check.get("rs_data")
+        macro_impact = risk_check.get("macro_impact", "NORMAL")
+        compact_data = _compress_market_data(
+            technicals, bars,
+            regime_str=regime_str, rs_data=rs_data, macro_impact=macro_impact,
+        )
+        logger.info("Routing %s to adversarial debate (%d rounds)", symbol, debate_rounds)
+        return run_debate(
+            symbol=symbol,
+            market_data=compact_data,
+            perplexity_intel=perplexity_intel,
+            risk_check=risk_check,
+            rounds=debate_rounds,
+        )
+
+    # --- Legacy single-call path (SHARK_DEBATE_ROUNDS=0) ---
     # Get context for enhanced prompts
     regime_str = risk_check.get("regime", "")
     rs_data = risk_check.get("rs_data")

@@ -38,6 +38,68 @@ def _parse_yesterday_equity(current_equity: float) -> float:
 
 
 
+def _detect_closed_trades(current_positions: list[dict]) -> list[dict]:
+    """
+    Detect trades that have closed by comparing pending outcomes against
+    current open positions. Returns a list of closed trade dicts.
+    """
+    from shark.agents.outcome_resolver import get_pending_outcomes
+
+    pending = get_pending_outcomes()
+    if not pending:
+        return []
+
+    open_symbols = {p.get("symbol", "").upper() for p in current_positions}
+    closed = []
+
+    for entry in pending:
+        symbol = entry.get("symbol", "").upper()
+        if symbol not in open_symbols:
+            # Trade is no longer in positions — it closed
+            # Try to get exit info from TRADE-LOG.md
+            exit_info = _find_exit_info(symbol, entry.get("entry_date", ""))
+            closed.append({
+                "symbol": symbol,
+                "entry_date": entry.get("entry_date", ""),
+                "entry_price": float(entry.get("entry_price", 0)),
+                "exit_date": exit_info.get("exit_date", date.today().isoformat()),
+                "exit_price": float(exit_info.get("exit_price", entry.get("entry_price", 0))),
+                "exit_reason": exit_info.get("exit_reason", "unknown"),
+                "pnl_pct": float(exit_info.get("pnl_pct", 0)),
+                "catalyst": entry.get("catalyst", ""),
+                "thesis_summary": entry.get("thesis_summary", ""),
+            })
+
+    return closed
+
+
+def _find_exit_info(symbol: str, entry_date: str) -> dict:
+    """Try to find exit info for a symbol from TRADE-LOG.md."""
+    if not TRADE_LOG_PATH.exists():
+        return {}
+
+    try:
+        content = TRADE_LOG_PATH.read_text(encoding="utf-8")
+        # Look for exit entries matching this symbol
+        pattern = re.compile(
+            rf"\|\s*\d{{4}}-\d{{2}}-\d{{2}}\s*\|\s*{re.escape(symbol)}\s*\|\s*sell\s*\|"
+            rf"\s*\d+\s*\|\s*([0-9.]+)\s*\|",
+            re.IGNORECASE,
+        )
+        matches = list(pattern.finditer(content))
+        if matches:
+            last_match = matches[-1]
+            exit_price = float(last_match.group(1))
+            # Extract date from the match
+            date_match = re.search(r"\d{4}-\d{2}-\d{2}", last_match.group(0))
+            exit_date = date_match.group(0) if date_match else date.today().isoformat()
+            return {"exit_date": exit_date, "exit_price": exit_price, "exit_reason": "trade_log"}
+    except Exception:
+        pass
+
+    return {}
+
+
 def run(dry_run: bool = False) -> bool:
     today = date.today().isoformat()
 
@@ -115,6 +177,19 @@ def run(dry_run: bool = False) -> bool:
             save_daily_snapshot(today, summary)
         except Exception as exc:
             logger.debug("KB save_daily_snapshot failed: %s", exc)
+
+    # === DEFERRED OUTCOME RESOLUTION — resolve closed trades, generate reflections ===
+    if not dry_run:
+        try:
+            from shark.agents.outcome_resolver import resolve_closed_trades
+            closed = _detect_closed_trades(positions)
+            if closed:
+                results = resolve_closed_trades(closed)
+                logger.info(
+                    "Resolved %d closed trade outcomes", len(results),
+                )
+        except Exception as exc:
+            logger.debug("Outcome resolution failed: %s", exc)
 
     sign = "+" if day_pnl_pct >= 0 else ""
     subject = f"Shark EOD {today} | {sign}{day_pnl_pct:.2f}%"

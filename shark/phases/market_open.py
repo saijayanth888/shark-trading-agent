@@ -742,7 +742,35 @@ def _run_full(dry_run: bool = False) -> bool:
             logger.info("%s decision=%s — skipping", symbol, decision["decision"])
             continue
 
+        # === LLM Risk Debate (Priority 3) — optional qualitative risk review ===
+        if os.environ.get("SHARK_LLM_RISK_REVIEW", "false").lower() in ("true", "1", "yes"):
+            try:
+                from shark.agents.risk_debate import run_risk_debate
+                risk_rounds = int(os.environ.get("SHARK_RISK_DEBATE_ROUNDS", "1"))
+                risk_result = run_risk_debate(
+                    symbol=symbol,
+                    trade_decision=decision,
+                    market_data=c["technicals"],
+                    rounds=risk_rounds,
+                )
+                if not risk_result.get("approved", True):
+                    logger.info(
+                        "%s VETOED by risk debate — %s",
+                        symbol, risk_result.get("debate_summary", ""),
+                    )
+                    continue
+                # Apply risk debate adjustments
+                decision = risk_result.get("adjusted_decision", decision)
+                size_mult = risk_result.get("position_size_mult", 1.0)
+            except Exception as exc:
+                logger.warning("Risk debate failed for %s (proceeding): %s", symbol, exc)
+                size_mult = 1.0
+        else:
+            size_mult = 1.0
+
         qty = c["risk_check"]["adjusted_size"]
+        if size_mult != 1.0:
+            qty = max(1, int(qty * size_mult))
         trail_pct = c["trail_pct"]
         current_price = c["current_price"]
 
@@ -775,6 +803,18 @@ def _run_full(dry_run: bool = False) -> bool:
             "sizing_method": c["sizing_method"],
             "atr": c["technicals"]["atr_14"],
         })
+
+        # === Deferred Outcome Tracking (Priority 4) — store for later resolution ===
+        try:
+            from shark.agents.outcome_resolver import store_pending_outcome
+            store_pending_outcome(
+                symbol=symbol,
+                entry_date=today,
+                entry_price=float(fill_price),
+                trade_decision=decision,
+            )
+        except Exception as exc:
+            logger.debug("store_pending_outcome failed for %s: %s", symbol, exc)
 
         signal = generate_signal(decision, execution)
         body_html = _build_email_body(signal, decision, execution)

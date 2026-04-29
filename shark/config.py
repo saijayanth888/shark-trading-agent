@@ -101,6 +101,11 @@ class Settings:
     time_decay_min_move_pct: float
     vol_expansion_threshold: float
 
+    # ----- Multi-agent debate -----
+    debate_rounds: int            # 0 = single-call (legacy), 1+ = adversarial rounds
+    llm_risk_review: bool         # enable LLM-powered risk debate after guardrails
+    risk_debate_rounds: int       # rounds per risk perspective (aggressive/conservative/neutral)
+
     # ----- Regime detection -----
     regime_atr_high_vol_pct: float
     regime_benchmark: str
@@ -165,6 +170,10 @@ class Settings:
         _require_range("TIME_DECAY_MIN_MOVE_PCT", self.time_decay_min_move_pct, min_v=0.0, max_v=50.0)
         _require_range("VOL_EXPANSION_THRESHOLD", self.vol_expansion_threshold, min_v=1.0, max_v=10.0)
 
+        # Multi-agent debate
+        _require_range("DEBATE_ROUNDS", self.debate_rounds, min_v=0, max_v=5)
+        _require_range("RISK_DEBATE_ROUNDS", self.risk_debate_rounds, min_v=0, max_v=3)
+
         # Regime
         _require_range("REGIME_ATR_HIGH_VOL_PCT", self.regime_atr_high_vol_pct, min_v=0.5, max_v=10.0)
 
@@ -228,6 +237,11 @@ def _load_from_env() -> Settings:
         time_decay_days=_env_int("TIME_DECAY_DAYS", 14),
         time_decay_min_move_pct=_env_float("TIME_DECAY_MIN_MOVE_PCT", 3.0),
         vol_expansion_threshold=_env_float("VOL_EXPANSION_THRESHOLD", 2.0),
+
+        # Multi-agent debate
+        debate_rounds=_env_int("SHARK_DEBATE_ROUNDS", 1),
+        llm_risk_review=_env_str("SHARK_LLM_RISK_REVIEW", "false").lower() in ("true", "1", "yes"),
+        risk_debate_rounds=_env_int("SHARK_RISK_DEBATE_ROUNDS", 1),
 
         # Regime
         regime_atr_high_vol_pct=_env_float("REGIME_ATR_HIGH_VOL_PCT", 2.5),
