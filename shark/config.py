@@ -106,6 +106,18 @@ class Settings:
     llm_risk_review: bool         # enable LLM-powered risk debate after guardrails
     risk_debate_rounds: int       # rounds per risk perspective (aggressive/conservative/neutral)
 
+    # ----- Trading mode -----
+    trading_mode: str                    # "paper" or "live"
+    alpaca_base_url: str                 # Alpaca endpoint (paper vs live)
+
+    # ----- Paper-mode overrides (only apply when trading_mode="paper") -----
+    paper_bear_override: bool            # allow limited trades in BEAR regimes
+    paper_macro_bypass: bool             # bypass CRITICAL/HIGH macro blocks
+    paper_bear_max_trades: int           # max new trades/day in BEAR override
+    paper_bear_size_mult: float          # position size multiplier (0.5 = half)
+    paper_bear_confidence: float         # min confidence threshold
+    paper_bear_min_score: int            # pre-market min score in BEAR regimes
+
     # ----- Regime detection -----
     regime_atr_high_vol_pct: float
     regime_benchmark: str
@@ -137,8 +149,42 @@ class Settings:
     resend_api_key: str
     resend_from_email: str
 
+    @property
+    def is_paper(self) -> bool:
+        """True when running in paper-trading mode."""
+        return self.trading_mode == "paper"
+
+    @property
+    def is_live(self) -> bool:
+        """True when running in live-trading mode."""
+        return self.trading_mode == "live"
+
     def validate(self) -> None:
         """Raise ConfigError if any field is out of range. Called once at load."""
+        # Trading mode
+        if self.trading_mode not in ("paper", "live"):
+            raise ConfigError(
+                f"TRADING_MODE={self.trading_mode!r} must be 'paper' or 'live'"
+            )
+        # Safety check: warn if live mode but using paper URL
+        if self.is_live and "paper-api" in self.alpaca_base_url:
+            logger.warning(
+                "TRADING_MODE=live but ALPACA_BASE_URL points to paper-api — "
+                "trades will execute on paper account, not real money"
+            )
+        # Safety check: warn if paper mode but using live URL
+        if self.is_paper and "paper-api" not in self.alpaca_base_url:
+            logger.warning(
+                "TRADING_MODE=paper but ALPACA_BASE_URL points to LIVE endpoint — "
+                "trades will execute with REAL money!"
+            )
+
+        # Paper-mode overrides
+        _require_range("PAPER_BEAR_MAX_TRADES", self.paper_bear_max_trades, min_v=0, max_v=5)
+        _require_range("PAPER_BEAR_SIZE_MULT", self.paper_bear_size_mult, min_v=0.1, max_v=1.0)
+        _require_range("PAPER_BEAR_CONFIDENCE", self.paper_bear_confidence, min_v=0.5, max_v=1.0)
+        _require_range("PAPER_BEAR_MIN_SCORE", self.paper_bear_min_score, min_v=1, max_v=10)
+
         # Risk / sizing — fractions are 0..1, percentages have explicit upper bounds
         _require_range("MAX_POSITIONS", self.max_positions, min_v=1, max_v=20)
         _require_range("MAX_POSITION_PCT", self.max_position_pct, min_v=0.01, max_v=0.50)
@@ -255,6 +301,18 @@ def _load_from_env() -> Settings:
         backtest_momentum_min=_env_float("BACKTEST_MOMENTUM_MIN", 50.0),
         backtest_rs_min=_env_float("BACKTEST_RS_MIN", 0.0),
         backtest_symbols=_env_str("BACKTEST_SYMBOLS", ""),
+
+        # Trading mode
+        trading_mode=_env_str("TRADING_MODE", "paper").lower(),
+        alpaca_base_url=_env_str("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
+
+        # Paper-mode overrides
+        paper_bear_override=_env_str("PAPER_BEAR_OVERRIDE", "true").lower() in ("true", "1", "yes"),
+        paper_macro_bypass=_env_str("PAPER_MACRO_BYPASS", "true").lower() in ("true", "1", "yes"),
+        paper_bear_max_trades=_env_int("PAPER_BEAR_MAX_TRADES", 1),
+        paper_bear_size_mult=_env_float("PAPER_BEAR_SIZE_MULT", 0.5),
+        paper_bear_confidence=_env_float("PAPER_BEAR_CONFIDENCE", 0.85),
+        paper_bear_min_score=_env_int("PAPER_BEAR_MIN_SCORE", 3),
 
         # API credentials
         alpaca_api_key=_env_str("ALPACA_API_KEY"),

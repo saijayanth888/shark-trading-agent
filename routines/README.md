@@ -96,6 +96,18 @@ Run `python scripts/gmail_oauth_setup.py` once locally to get the OAuth tokens, 
 ### Trading Mode (required)
 - `TRADING_MODE` — `paper` or `live`
 
+### Paper-Mode Overrides (optional, has defaults — only apply when `TRADING_MODE=paper`)
+
+In paper mode, the agent allows limited trading in BEAR regimes and bypasses macro blocks
+so the full pipeline can be tested. Set `PAPER_BEAR_OVERRIDE=false` to disable.
+
+- `PAPER_BEAR_OVERRIDE` — allow trades in BEAR regimes (default: `true`)
+- `PAPER_MACRO_BYPASS` — bypass CRITICAL/HIGH macro blocks (default: `true`)
+- `PAPER_BEAR_MAX_TRADES` — max new trades per day in BEAR override (default: `1`)
+- `PAPER_BEAR_SIZE_MULT` — position size multiplier, 0.5 = half size (default: `0.5`)
+- `PAPER_BEAR_CONFIDENCE` — min confidence threshold (default: `0.85`)
+- `PAPER_BEAR_MIN_SCORE` — pre-market min score in BEAR regimes (default: `3`)
+
 ### AI Model (optional, has defaults)
 - `CLAUDE_MODEL` — Claude model ID (default: `claude-sonnet-4-6`)
 

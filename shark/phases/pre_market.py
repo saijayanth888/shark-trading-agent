@@ -279,10 +279,11 @@ def run(dry_run: bool = False) -> bool:
     )
 
     # Raise minimum score threshold in bear/volatile regimes
-    is_paper = os.environ.get("TRADING_MODE", "paper").lower() == "paper"
+    from shark.config import get_settings
+    cfg = get_settings()
     min_score = 2
     if "BEAR" in regime_str:
-        min_score = 3 if is_paper else 4  # paper: lower bar to test pipeline
+        min_score = cfg.paper_bear_min_score if (cfg.is_paper and cfg.paper_bear_override) else 4
     elif "VOLATILE" in regime_str:
         min_score = 3
 
