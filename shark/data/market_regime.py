@@ -78,6 +78,26 @@ REGIME_RULES: dict[str, dict[str, Any]] = {
     },
 }
 
+# Paper-mode overrides: allow limited trading in BEAR regimes for pipeline testing
+_PAPER_BEAR_RULES: dict[str, dict[str, Any]] = {
+    MarketRegime.BEAR_QUIET: {
+        "new_trades_allowed": True,
+        "position_size_multiplier": 0.5,
+        "max_new_trades_per_day": 1,
+        "stop_width_multiplier": 1.0,
+        "confidence_threshold": 0.85,
+        "description": "PAPER MODE — BEAR_QUIET override: 1 trade/day, half size, high confidence",
+    },
+    MarketRegime.BEAR_VOLATILE: {
+        "new_trades_allowed": True,
+        "position_size_multiplier": 0.5,
+        "max_new_trades_per_day": 1,
+        "stop_width_multiplier": 0.8,
+        "confidence_threshold": 0.85,
+        "description": "PAPER MODE — BEAR_VOLATILE override: 1 trade/day, half size, high confidence",
+    },
+}
+
 # ATR volatility threshold: if ATR% > this, market is "volatile"
 _ATR_HIGH_VOL_THRESHOLD = float(os.environ.get("REGIME_ATR_HIGH_VOL_PCT", "1.5"))
 _TREND_LOOKBACK = 100  # bars for regime detection (need 50 SMA + cushion)
@@ -207,6 +227,15 @@ def detect_regime() -> dict[str, Any]:
     }
 
     rules = REGIME_RULES[regime]
+
+    # Paper-mode override: allow limited trading in BEAR regimes
+    is_paper = os.environ.get("TRADING_MODE", "paper").lower() == "paper"
+    if is_paper and regime in _PAPER_BEAR_RULES:
+        rules = _PAPER_BEAR_RULES[regime]
+        logger.info(
+            "PAPER MODE: overriding %s rules — allowing 1 trade/day at half size",
+            regime.value,
+        )
 
     logger.info(
         "Market regime: %s | trend_score=%d atr_pct=%.2f%% atr_pctl=%.0f%% | %s",

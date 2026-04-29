@@ -279,9 +279,10 @@ def run(dry_run: bool = False) -> bool:
     )
 
     # Raise minimum score threshold in bear/volatile regimes
+    is_paper = os.environ.get("TRADING_MODE", "paper").lower() == "paper"
     min_score = 2
     if "BEAR" in regime_str:
-        min_score = 4
+        min_score = 3 if is_paper else 4  # paper: lower bar to test pipeline
     elif "VOLATILE" in regime_str:
         min_score = 3
 

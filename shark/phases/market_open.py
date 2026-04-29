@@ -352,11 +352,14 @@ def _prepare(dry_run: bool = False) -> bool:
 
     macro = check_macro_calendar()
     macro_impact = macro.get("impact_level", "NORMAL")
-    if macro_impact in ("CRITICAL", "HIGH"):
+    is_paper = os.environ.get("TRADING_MODE", "paper").lower() == "paper"
+    if macro_impact in ("CRITICAL", "HIGH") and not is_paper:
         handoff.write_handoff_section("market-open", {
             "traded": "none", "reason": f"macro block: {macro.get('description', macro_impact)}",
         })
         return _write_blocked(f"macro_{macro_impact}")
+    elif macro_impact in ("CRITICAL", "HIGH") and is_paper:
+        logger.info("PAPER MODE: bypassing macro %s block for pipeline testing", macro_impact)
 
     candidates = handoff.get_validated_symbols()
     if not candidates:
@@ -656,7 +659,8 @@ def _run_full(dry_run: bool = False) -> bool:
 
     macro = check_macro_calendar()
     macro_impact = macro.get("impact_level", "NORMAL")
-    if macro_impact in ("CRITICAL", "HIGH"):
+    is_paper_full = os.environ.get("TRADING_MODE", "paper").lower() == "paper"
+    if macro_impact in ("CRITICAL", "HIGH") and not is_paper_full:
         logger.info("Macro block: %s — %s", macro_impact, macro.get("description", ""))
         handoff.write_handoff_section("market-open", {
             "traded": "none", "reason": f"macro block: {macro.get('description', macro_impact)}",
@@ -664,6 +668,8 @@ def _run_full(dry_run: bool = False) -> bool:
         if not dry_run:
             state.commit_memory(f"market-open {today}: macro block {macro_impact}")
         return True
+    elif macro_impact in ("CRITICAL", "HIGH") and is_paper_full:
+        logger.info("PAPER MODE: bypassing macro %s block for pipeline testing", macro_impact)
 
     candidates = handoff.get_validated_symbols()
     if not candidates:
