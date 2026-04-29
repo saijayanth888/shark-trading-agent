@@ -66,7 +66,7 @@ Every routine needs these environment variables set **directly on the routine co
 
 ## Step 2: Create Routines
 
-Go to **Claude Code Cloud → Routines** and create 7 routines. For each one:
+Go to **Claude Code Cloud → Routines** and create 5 routines. For each one:
 
 1. **Name** — Use the routine name from the table below
 2. **Schedule** — Set the cron expression (timezone: `America/New_York`)
@@ -74,17 +74,15 @@ Go to **Claude Code Cloud → Routines** and create 7 routines. For each one:
 4. **Environment variables** — Add ALL required variables listed above
 5. **Settings** — Enable **"Allow unrestricted branch pushes"**
 
-### Routine Schedule
+### Routine Schedule (5 consolidated routines)
 
 | # | Routine Name | Cron Expression | Time (ET) | Days | File to Copy |
 |---|-------------|-----------------|-----------|------|-------------|
 | 1 | Pre-Market Research | `0 6 * * 1-5` | 6:00 AM | Mon–Fri | `routines/pre-market.md` |
-| 2 | Pre-Execute Validation | `45 9 * * 1-5` | 9:45 AM | Mon–Fri | `routines/pre-execute.md` |
-| 3 | Market Open | `0 10 * * 1-5` | 10:00 AM | Mon–Fri | `routines/market-open.md` |
-| 4 | Midday Scan | `0 13 * * 1-5` | 1:00 PM | Mon–Fri | `routines/midday.md` |
-| 5 | Daily Summary | `15 16 * * 1-5` | 4:15 PM | Mon–Fri | `routines/daily-summary.md` |
-| 6 | Weekly Review | `0 17 * * 5` | 5:00 PM | Friday only | `routines/weekly-review.md` |
-| 7 | Weekly Backtest | `0 18 * * 5` | 6:00 PM | Friday only | `routines/backtest.md` |
+| 2 | Trading | `45 9 * * 1-5` | 9:45 AM | Mon–Fri | `routines/trading.md` |
+| 3 | Midday Scan | `0 13 * * 1-5` | 1:00 PM | Mon–Fri | `routines/midday.md` |
+| 4 | End of Day | `15 16 * * 1-5` | 4:15 PM | Mon–Fri | `routines/eod.md` |
+| 5 | Weekly | `0 17 * * 5` | 5:00 PM | Friday only | `routines/weekly.md` |
 
 ---
 
@@ -92,8 +90,8 @@ Go to **Claude Code Cloud → Routines** and create 7 routines. For each one:
 
 After creating all routines, verify:
 
-- [ ] All 7 routines are created and scheduled
-- [ ] Every routine has ALL required env vars set
+- [ ] All 5 routines are created and scheduled
+- [ ] Every routine has ALL required env vars set (especially the 3 Gmail OAuth vars)
 - [ ] "Allow unrestricted branch pushes" is ON for each routine
 - [ ] Claude GitHub App is installed on this repo
 - [ ] Run one routine manually to test (try `pre-market` first — it's the safest)

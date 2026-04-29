@@ -27,18 +27,16 @@ Approach: "Shark Signals" — trading income + subscription revenue combined.
 - Alpaca: Paper trading endpoint active
 - Perplexity: CONFIGURED (sonar-pro validated 2026-04-25)
 - Anthropic: [set ANTHROPIC_API_KEY in routine env vars]
-- Gmail: [set GMAIL_APP_PASSWORD, NOTIFY_EMAIL, NOTIFY_FROM_EMAIL in routine env vars]
+- Gmail: [set GMAIL_OAUTH_CLIENT_ID, GMAIL_OAUTH_CLIENT_SECRET, GMAIL_OAUTH_REFRESH_TOKEN, NOTIFY_EMAIL, NOTIFY_FROM_EMAIL in routine env vars — run `python scripts/gmail_oauth_setup.py` once locally to get tokens]
 
-## Cloud Routines Status
+## Cloud Routines Status (5 consolidated routines)
 | Routine | Cron (ET) | Status |
 |---|---|---|
-| pre-market.md | 6:00 AM Mon-Fri | ACTIVE (Idle) |
-| pre-execute.md | 9:45 AM Mon-Fri | ACTIVE (Idle) |
-| market-open.md | 10:00 AM Mon-Fri | ACTIVE (Idle) |
-| midday.md | 1:00 PM Mon-Fri | ACTIVE (Idle) |
-| daily-summary.md | 4:15 PM Mon-Fri | ACTIVE (Idle) |
-| weekly-review.md | 5:00 PM Fri | ACTIVE (Idle — next run May 1) |
-| backtest.md | 6:00 PM Fri | ACTIVE (Idle — next run May 1) |
+| pre-market.md | 6:00 AM Mon-Fri | ACTIVE |
+| trading.md | 9:45 AM Mon-Fri | ACTIVE |
+| midday.md | 1:00 PM Mon-Fri | ACTIVE |
+| eod.md | 4:15 PM Mon-Fri | ACTIVE |
+| weekly.md | 5:00 PM Fri | ACTIVE |
 
 ## Sector Failure Tracking
 | Sector | Consecutive Failures | Status |

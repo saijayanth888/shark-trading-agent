@@ -80,9 +80,18 @@ trading routines see the latest data.
 > **Note: `ANTHROPIC_API_KEY` is NOT needed for cloud routines.** Claude IS the brain — the routine prompt itself runs on Claude infrastructure. The Python phases use rule-based analysis when no API key is set, which is the cloud default. Only set `ANTHROPIC_API_KEY` for local dev when running `_run_full` mode (which calls Anthropic directly for combined_analyst / decision_arbiter / trade_reviewer).
 
 ### Email Notifications (required)
-- `GMAIL_APP_PASSWORD` — Gmail app-specific password (NOT your regular Gmail password)
+
+Cloud sandboxes block SMTP (port 587), so emails use the **Gmail REST API** over HTTPS (port 443).
+Run `python scripts/gmail_oauth_setup.py` once locally to get the OAuth tokens, then set:
+
+- `GMAIL_OAUTH_CLIENT_ID` — Google Cloud OAuth2 client ID
+- `GMAIL_OAUTH_CLIENT_SECRET` — Google Cloud OAuth2 client secret
+- `GMAIL_OAUTH_REFRESH_TOKEN` — long-lived refresh token (does not expire unless revoked)
 - `NOTIFY_EMAIL` — destination address (e.g. sharkwaveai@gmail.com)
-- `NOTIFY_FROM_EMAIL` — sending address (must match the Gmail account for GMAIL_APP_PASSWORD)
+- `NOTIFY_FROM_EMAIL` — sending Gmail address (must match the account that authorized OAuth)
+
+> **Fallback (local dev only):** `GMAIL_APP_PASSWORD` works via SMTP when port 587 is open.
+> If all transports fail, alerts are written to `memory/SIGNAL-LOG.md` as a last resort.
 
 ### Trading Mode (required)
 - `TRADING_MODE` — `paper` or `live`
