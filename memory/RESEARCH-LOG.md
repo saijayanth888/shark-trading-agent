@@ -23,3 +23,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 **Rejected:** [ticker: reason]
 **Passed to market-open:** [tickers or NONE]
 -->
+## 2026-04-30 — AMD
+**Sentiment:** 0.3
+**Thesis:** Chip-sector strength post-Intel earnings
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| AMD | RESEARCH_CANDIDATE | 8 |
+
