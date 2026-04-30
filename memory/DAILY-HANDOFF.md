@@ -11,3 +11,9 @@ lessons: none
 ## pre-execute | 13:46 EDT
 validated: AMD
 rejected: none
+
+## market-open | 13:46 EDT
+traded: none
+count: 0
+regime: BEAR_VOLATILE
+macro: Day before: NFP May 2026
