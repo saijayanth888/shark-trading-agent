@@ -74,7 +74,8 @@ Hard rules (re-enforced server-side — defense-in-depth):
 
 - Only `decision: BUY` if confidence >= 0.70 AND risk_reward_ratio >= 2.0
 - `stop_loss` must be below `entry_price`, `target_price` above it, and the derived ratio must be >= 1.8
-- If `regime` contains BEAR → NO new longs
+- If `regime` contains BEAR **and** `TRADING_MODE` env var is `live` → NO new longs
+- If `regime` contains BEAR **and** `TRADING_MODE` env var is `paper` (or unset) → allow up to 1 BUY with confidence >= 0.85 (paper-mode pipeline testing)
 - Total BUY decisions must not exceed `max_trades_remaining`
 
 **Step 4 — Execute orders:**
