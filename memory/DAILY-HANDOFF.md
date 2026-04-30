@@ -17,3 +17,7 @@ traded: none
 count: 0
 regime: BEAR_VOLATILE
 macro: Day before: NFP May 2026
+
+## pre-execute | 14:30 EDT
+validated: none
+rejected: AMD

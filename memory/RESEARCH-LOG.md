@@ -37,3 +37,8 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|--------|
 | AMD    | CONFIRMED | Price in zone, volume ok, thesis intact |
 
+### Pre-Execute Validation — 9:45 AM
+| Symbol | Status | Reason |
+|--------|--------|--------|
+| AMD    | NEWS_REJECTED | Breaking negative catalyst — sentiment_score: -0.15, risks: ['Valuation appears stretched at forward P/E of 46 and forward price-to-operating cash flow of 35.5x', 'Discounted cash flow analysis suggests stock is overvalued relative to current market price of $305-$326'] |
+
