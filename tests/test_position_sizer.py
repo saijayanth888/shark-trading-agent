@@ -282,10 +282,12 @@ class TestPartialExitPlan:
 class TestEnvConfig:
     def test_custom_risk_frac(self, monkeypatch):
         monkeypatch.setenv("RISK_PER_TRADE_PCT", "0.005")  # 0.5%
-        mod = _load_sizer()
-        assert mod._BASE_RISK_FRAC == 0.005
+        from shark.config import load_settings
+        cfg = load_settings(force_reload=True)
+        assert cfg.risk_per_trade_pct == 0.005
 
     def test_custom_max_position(self, monkeypatch):
         monkeypatch.setenv("MAX_POSITION_PCT", "0.10")  # 10%
-        mod = _load_sizer()
-        assert mod._MAX_POSITION_FRAC == 0.10
+        from shark.config import load_settings
+        cfg = load_settings(force_reload=True)
+        assert cfg.max_position_pct == 0.10

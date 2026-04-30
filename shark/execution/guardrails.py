@@ -5,10 +5,10 @@ No AI. No exceptions. These rules are enforced unconditionally before any
 order reaches Alpaca. Instantiate once and call run_all() before every trade.
 """
 
-import os
 import logging
 from typing import Any
 
+from shark.config import get_settings
 from shark.data.macro_calendar import check_macro_calendar
 
 logger = logging.getLogger(__name__)
@@ -24,22 +24,16 @@ class Guardrails:
     """
 
     def __init__(self) -> None:
-        self.max_positions: int = int(os.getenv("MAX_POSITIONS", "6"))
-        self.max_position_pct: float = float(os.getenv("MAX_POSITION_PCT", "0.20"))
-        self.max_weekly_trades: int = int(os.getenv("MAX_WEEKLY_TRADES", "3"))
-        self.min_cash_buffer: float = float(os.getenv("MIN_CASH_BUFFER_PCT", "0.15"))
-        self.circuit_breaker_pct: float = float(
-            os.getenv("CIRCUIT_BREAKER_PCT", "0.15")
-        )
-        self.max_sector_failures: int = int(
-            os.getenv("MAX_SECTOR_FAILURES", "2")
-        )
-        self.max_sector_concentration: int = int(
-            os.getenv("MAX_SECTOR_CONCENTRATION", "3")
-        )
-        self.min_momentum_score: float = float(
-            os.getenv("MIN_MOMENTUM_SCORE", "40.0")
-        )
+        cfg = get_settings()
+        self.max_positions: int = cfg.max_positions
+        self.max_position_pct: float = cfg.max_position_pct
+        self.max_weekly_trades: int = cfg.max_weekly_trades
+        self.min_cash_buffer: float = cfg.min_cash_buffer_pct
+        self.circuit_breaker_pct: float = cfg.circuit_breaker_pct
+        self.max_sector_failures: int = cfg.max_sector_failures
+        self.max_sector_concentration: int = cfg.max_sector_concentration
+        self.min_momentum_score: float = cfg.min_momentum_score
+        self._cfg = cfg
 
     # ------------------------------------------------------------------
     # Individual checks — each returns (passed: bool, message: str)
@@ -153,7 +147,18 @@ class Guardrails:
             (True, ok_msg) if within drawdown limits, else (False, fail_msg).
         """
         if peak_equity <= 0:
-            return False, "FAIL — peak_equity is zero or negative."
+            # Bootstrap: no peak recorded yet — use current equity as baseline.
+            # This handles fresh setups and avoids blocking all trades on day 1.
+            if current_equity > 0:
+                logger.info(
+                    "peak_equity not set — bootstrapping from current equity $%.2f",
+                    current_equity,
+                )
+                return True, (
+                    f"OK — peak_equity not yet recorded; using current equity "
+                    f"${current_equity:.2f} as baseline."
+                )
+            return False, "FAIL — both peak_equity and current_equity are zero or negative."
 
         drawdown = (peak_equity - current_equity) / peak_equity
         if drawdown < self.circuit_breaker_pct:
@@ -244,7 +249,7 @@ class Guardrails:
         Block new trades in BEAR market regimes.
 
         BULL_QUIET / BULL_VOLATILE: allowed
-        BEAR_QUIET / BEAR_VOLATILE: blocked
+        BEAR_QUIET / BEAR_VOLATILE: blocked (unless paper-mode override)
         UNKNOWN: allowed with caution
 
         Args:
@@ -254,6 +259,13 @@ class Guardrails:
             (True, ok_msg) or (False, fail_msg).
         """
         if "BEAR" in regime.upper():
+            # Paper-mode override: allow limited trades for pipeline testing
+            if self._cfg.is_paper and self._cfg.paper_bear_override:
+                return True, (
+                    f"OK — PAPER MODE override: {regime} allows limited trades "
+                    f"(max {self._cfg.paper_bear_max_trades}/day, "
+                    f"confidence >= {self._cfg.paper_bear_confidence})"
+                )
             return False, (
                 f"FAIL — market regime is {regime}. "
                 f"No new longs allowed in BEAR regimes."
@@ -271,6 +283,13 @@ class Guardrails:
         impact = macro.get("impact_level", "NORMAL")
 
         if impact in ("CRITICAL", "HIGH"):
+            # Paper-mode macro bypass for pipeline testing
+            if self._cfg.is_paper and self._cfg.paper_macro_bypass:
+                desc = macro.get("description", "major event")
+                return True, (
+                    f"OK — PAPER MODE bypass: {impact} — {desc} "
+                    f"(would block in live mode)"
+                )
             desc = macro.get("description", "major event")
             return False, f"FAIL — macro block: {impact} — {desc}"
 

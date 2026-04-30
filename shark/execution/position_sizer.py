@@ -24,25 +24,14 @@ Result: min(ATR_size, Kelly_size, guardrail_max) × regime_mult × drawdown_mult
 """
 
 import logging
-import os
 from typing import Any
+
+from shark.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Risk per trade as fraction of portfolio (0.01 = 1%).  Matches config.py convention.
-_BASE_RISK_FRAC = float(os.environ.get("RISK_PER_TRADE_PCT", "0.01"))
-
-# ATR multiplier for stop distance (2.0 = stop at 2× ATR below entry)
-_ATR_STOP_MULTIPLE = float(os.environ.get("ATR_STOP_MULTIPLE", "2.0"))
-
-# Max position size as fraction of portfolio (0.20 = 20%).  Matches config.py convention.
-_MAX_POSITION_FRAC = float(os.environ.get("MAX_POSITION_PCT", "0.20"))
-
 # Min position size in shares
 _MIN_SHARES = 1
-
-# Fractional Kelly fraction (0.25 = quarter Kelly — conservative)
-_KELLY_FRACTION = float(os.environ.get("KELLY_FRACTION", "0.25"))
 
 
 def compute_position_size(
@@ -83,6 +72,12 @@ def compute_position_size(
     if regime_multiplier <= 0:
         return _zero_result("regime blocks new trades (BEAR mode)")
 
+    cfg = get_settings()
+    _BASE_RISK_FRAC = cfg.risk_per_trade_pct
+    _ATR_STOP_MULTIPLE = cfg.atr_stop_multiple
+    _MAX_POSITION_FRAC = cfg.max_position_pct
+    _KELLY_FRACTION = cfg.kelly_fraction
+
     # --- METHOD 1: ATR-BASED SIZING ---
     risk_dollars = portfolio_value * _BASE_RISK_FRAC
     stop_distance = atr * _ATR_STOP_MULTIPLE if atr > 0 else current_price * 0.10
@@ -95,7 +90,7 @@ def compute_position_size(
     atr_stop_price = round(current_price - stop_distance, 2)
 
     # --- METHOD 2: FRACTIONAL KELLY ---
-    kelly_pct = _compute_kelly(win_rate, avg_win_loss_ratio)
+    kelly_pct = _compute_kelly(win_rate, avg_win_loss_ratio, _KELLY_FRACTION, _MAX_POSITION_FRAC)
     kelly_dollars = portfolio_value * kelly_pct
     kelly_shares = int(kelly_dollars / current_price) if current_price > 0 else 0
 
@@ -230,7 +225,12 @@ def compute_partial_exit_plan(
     return plan
 
 
-def _compute_kelly(win_rate: float, avg_win_loss_ratio: float) -> float:
+def _compute_kelly(
+    win_rate: float,
+    avg_win_loss_ratio: float,
+    kelly_fraction: float = 0.25,
+    max_position_frac: float = 0.20,
+) -> float:
     """
     Compute fractional Kelly criterion position size.
 
@@ -245,10 +245,10 @@ def _compute_kelly(win_rate: float, avg_win_loss_ratio: float) -> float:
     kelly = (win_rate * avg_win_loss_ratio - (1 - win_rate)) / avg_win_loss_ratio
 
     # Apply fractional Kelly
-    fractional = kelly * _KELLY_FRACTION
+    fractional = kelly * kelly_fraction
 
     # Clamp between 1% and max position fraction
-    return max(0.01, min(fractional, _MAX_POSITION_FRAC))
+    return max(0.01, min(fractional, max_position_frac))
 
 
 def _compute_drawdown_multiplier(portfolio_value: float, peak_equity: float) -> float:

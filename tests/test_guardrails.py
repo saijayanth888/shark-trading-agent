@@ -135,9 +135,15 @@ class TestCircuitBreaker:
         ok, _ = g.check_circuit_breaker(current_equity=5000.0, peak_equity=10000.0)
         assert not ok
 
-    def test_fails_on_zero_peak(self):
+    def test_bootstraps_on_zero_peak_with_positive_equity(self):
         g = make_guardrails()
-        ok, _ = g.check_circuit_breaker(current_equity=1000.0, peak_equity=0.0)
+        ok, msg = g.check_circuit_breaker(current_equity=1000.0, peak_equity=0.0)
+        assert ok  # bootstraps from current equity instead of blocking
+        assert "baseline" in msg
+
+    def test_fails_on_zero_peak_and_zero_equity(self):
+        g = make_guardrails()
+        ok, _ = g.check_circuit_breaker(current_equity=0.0, peak_equity=0.0)
         assert not ok
 
 

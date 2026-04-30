@@ -262,9 +262,11 @@ def _collect_candidate_data(
         # ATR-derived trailing stop — keeps trail proportional to a ticker's
         # actual volatility rather than a fixed 10%. ATR_TRAIL_MULTIPLE controls
         # tightness (default 3.0x ATR ~= typical swing-trade trail).
-        atr_trail_multiple = float(os.environ.get("ATR_TRAIL_MULTIPLE", "3.0"))
-        trail_pct_min = float(os.environ.get("TRAIL_PCT_MIN", "5.0"))
-        trail_pct_max = float(os.environ.get("TRAIL_PCT_MAX", "15.0"))
+        from shark.config import get_settings
+        _cfg = get_settings()
+        atr_trail_multiple = _cfg.atr_trail_multiple
+        trail_pct_min = _cfg.trail_pct_min
+        trail_pct_max = _cfg.trail_pct_max
         if current_price > 0 and atr > 0:
             atr_trail = (atr / current_price) * 100.0 * atr_trail_multiple * stop_width
             computed_trail = max(trail_pct_min, min(trail_pct_max, atr_trail))
@@ -381,10 +383,24 @@ def _prepare(dry_run: bool = False) -> bool:
     weekly_count = state.get_weekly_trade_count()
     peak_equity = state.get_peak_equity()
     portfolio_value = float(account["portfolio_value"])
+
+    # Bootstrap: if peak_equity was never set, initialize from current portfolio
+    if peak_equity <= 0 and portfolio_value > 0:
+        logger.info("Bootstrapping peak_equity from portfolio: $%.2f", portfolio_value)
+        state.update_peak_equity(portfolio_value)
+        peak_equity = portfolio_value
+    elif portfolio_value > peak_equity:
+        state.update_peak_equity(portfolio_value)
+        peak_equity = portfolio_value
+
     max_trades = min(MAX_TRADES_PER_RUN, regime_rules.get("max_new_trades_per_day", 3))
     regime_mult = regime_rules.get("position_size_multiplier", 1.0)
-    macro_mult = macro.get("rules", {}).get("position_size_multiplier", 1.0)
+    macro_rules = macro.get("rules", {})
+    macro_mult = float(macro_rules.get("position_size_multiplier", 1.0))
     stop_width = regime_rules.get("stop_width_multiplier", 1.0)
+
+    if macro_mult < 1.0:
+        logger.info("Macro sizing adjustment: %.1fx (impact=%s)", macro_mult, macro_impact)
 
     account_for_guardrails = {
         "portfolio_value": portfolio_value,
@@ -693,10 +709,24 @@ def _run_full(dry_run: bool = False) -> bool:
     weekly_count = state.get_weekly_trade_count()
     peak_equity = state.get_peak_equity()
     portfolio_value = float(account["portfolio_value"])
+
+    # Bootstrap: if peak_equity was never set, initialize from current portfolio
+    if peak_equity <= 0 and portfolio_value > 0:
+        logger.info("Bootstrapping peak_equity from portfolio: $%.2f", portfolio_value)
+        state.update_peak_equity(portfolio_value)
+        peak_equity = portfolio_value
+    elif portfolio_value > peak_equity:
+        state.update_peak_equity(portfolio_value)
+        peak_equity = portfolio_value
+
     max_trades = min(MAX_TRADES_PER_RUN, regime_rules.get("max_new_trades_per_day", 3))
     regime_mult = regime_rules.get("position_size_multiplier", 1.0)
-    macro_mult = macro.get("rules", {}).get("position_size_multiplier", 1.0)
+    macro_rules_full = macro.get("rules", {})
+    macro_mult = float(macro_rules_full.get("position_size_multiplier", 1.0))
     stop_width = regime_rules.get("stop_width_multiplier", 1.0)
+
+    if macro_mult < 1.0:
+        logger.info("Macro sizing adjustment: %.1fx (impact=%s)", macro_mult, macro_impact)
 
     account_for_guardrails = {
         "portfolio_value": portfolio_value,
@@ -787,11 +817,25 @@ def _run_full(dry_run: bool = False) -> bool:
             symbol, qty, current_price, trail_pct, regime_str, c["rs_data"]["rs_composite"],
         )
 
+        # Extract LLM-computed stop/target for true bracket order
+        llm_stop = decision.get("stop_loss")
+        llm_target = decision.get("target_price")
+
         if dry_run:
-            logger.info("[DRY RUN] Would place bracket order: %s x%d", symbol, qty)
+            logger.info(
+                "[DRY RUN] Would place bracket order: %s x%d stop=%s target=%s",
+                symbol, qty, llm_stop, llm_target,
+            )
             continue
 
-        execution = place_bracket_order(symbol, qty, trail_pct=trail_pct)
+        # Pass stop_loss and take_profit so broker places a true bracket (OCO)
+        # instead of falling back to trailing stop
+        bracket_kwargs: dict = {"trail_pct": trail_pct}
+        if llm_stop is not None and llm_target is not None:
+            bracket_kwargs["stop_loss"] = float(llm_stop)
+            bracket_kwargs["take_profit"] = float(llm_target)
+
+        execution = place_bracket_order(symbol, qty, **bracket_kwargs)
         fill_price = execution.get("fill_price", current_price)
         stop_price = execution.get("stop_price", c["stop_price"])
 
