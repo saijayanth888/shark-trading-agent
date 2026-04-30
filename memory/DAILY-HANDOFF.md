@@ -27,3 +27,10 @@ traded: none
 count: 0
 regime: BEAR_VOLATILE
 macro: Day before: NFP May 2026
+
+## daily-summary | 20:28 EDT
+equity: $100,000.00
+cash: $100,000.00
+day_pnl: +0.00%
+open_positions: 0
+circuit_breaker: OK
