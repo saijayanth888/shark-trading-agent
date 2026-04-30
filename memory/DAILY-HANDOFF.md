@@ -7,3 +7,7 @@ market: bullish=8 bearish=0 of 22
 regime: BEAR_VOLATILE
 macro: ELEVATED
 lessons: none
+
+## pre-execute | 13:46 EDT
+validated: AMD
+rejected: none

@@ -32,3 +32,8 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|-------|
 | AMD | RESEARCH_CANDIDATE | 8 |
 
+### Pre-Execute Validation — 9:45 AM
+| Symbol | Status | Reason |
+|--------|--------|--------|
+| AMD    | CONFIRMED | Price in zone, volume ok, thesis intact |
+
