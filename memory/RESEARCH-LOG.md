@@ -42,3 +42,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|--------|
 | AMD    | NEWS_REJECTED | Breaking negative catalyst — sentiment_score: -0.15, risks: ['Valuation appears stretched at forward P/E of 46 and forward price-to-operating cash flow of 35.5x', 'Discounted cash flow analysis suggests stock is overvalued relative to current market price of $305-$326'] |
 
+## 2026-05-01 — AMD
+**Sentiment:** 0.0
+**Thesis:** 
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| AMD | RESEARCH_CANDIDATE | 3 |
+
