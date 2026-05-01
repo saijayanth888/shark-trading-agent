@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-30T20:28:19.615545",
+  "generated_at": "2026-05-01T20:28:59.673302",
   "state": {
     "peak_equity": 100000.0,
     "circuit_breaker_triggered": false,
@@ -35,6 +35,12 @@
       "equity": 100000.0,
       "cash": 100000.0,
       "day_pnl": 0.0
+    },
+    {
+      "date": "2026-05-01",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl": 0.0
     }
   ],
   "daily_snapshots": [
@@ -50,6 +56,16 @@
     },
     {
       "date": "2026-04-30",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl_dollars": 0.0,
+      "day_pnl_pct": 0.0,
+      "positions": [],
+      "trades_today": 0,
+      "trades_this_week": 0
+    },
+    {
+      "date": "2026-05-01",
       "equity": 100000.0,
       "cash": 100000.0,
       "day_pnl_dollars": 0.0,
@@ -74,6 +90,6 @@
     "current_drawdown_pct": 0.0
   },
   "handoff": {
-    "raw": "# Daily Handoff \u2014 2026-04-30\n\n## pre-market | 10:23 EDT\nconfirmed: AMD\nskipped: NVDA, D, META, MSFT, GOOGL\nmarket: bullish=8 bearish=0 of 22\nregime: BEAR_VOLATILE\nmacro: ELEVATED\nlessons: none\n\n## pre-execute | 13:46 EDT\nvalidated: AMD\nrejected: none\n\n## market-open | 13:46 EDT\ntraded: none\ncount: 0\nregime: BEAR_VOLATILE\nmacro: Day before: NFP May 2026\n\n## pre-execute | 14:30 EDT\nvalidated: none\nrejected: AMD\n\n## market-open | 14:31 EDT\ntraded: none\ncount: 0\nregime: BEAR_VOLATILE\nmacro: Day before: NFP May 2026\n\n## daily-summary | 20:28 EDT\nequity: $100,000.00\ncash: $100,000.00\nday_pnl: +0.00%\nopen_positions: 0\ncircuit_breaker: OK\n"
+    "raw": "# Daily Handoff \u2014 2026-05-01\n\n## pre-market | 10:04 EDT\nconfirmed: AMD\nskipped: AVGO, XOM, CVX, AAPL, META\nmarket: bullish=7 bearish=0 of 22\nregime: BEAR_VOLATILE\nmacro: HIGH\nlessons: none\n\n## pre-execute | 13:47 EDT\nvalidated: AMD\nrejected: none\n\n## market-open | 13:48 EDT\ntraded: none\ncount: 0\nregime: BEAR_VOLATILE\nmacro: Event day: NFP May 2026\n\n## daily-summary | 20:28 EDT\nequity: $100,000.00\ncash: $100,000.00\nday_pnl: +0.00%\nopen_positions: 0\ncircuit_breaker: OK\n"
   }
 }
