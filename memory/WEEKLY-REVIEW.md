@@ -27,3 +27,23 @@ Each Friday review appended here with: grade, P&L, alpha vs S&P, trade stats, st
 **Strategy notes:** [one sentence]
 **Next week focus:** [sectors/themes]
 -->
+## Week of 2026-05-01
+
+**Grade: B**
+
+| Metric | Value |
+|--------|-------|
+| Total Trades | 0 |
+| Wins | 0 |
+| Losses | 0 |
+| Win Rate | 0.0% |
+| Total P&L | +$0.00 |
+
+**What Worked:**
+[]
+
+**What Didn't:**
+[]
+
+---
+

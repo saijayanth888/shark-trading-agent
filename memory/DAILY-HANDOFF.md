@@ -24,3 +24,9 @@ cash: $100,000.00
 day_pnl: +0.00%
 open_positions: 0
 circuit_breaker: OK
+
+## weekly-review | 21:14 EDT
+grade: B
+week_return: +0.00%
+alpha: +0.00%
+win_rate: 0.0% (0W/0L)
