@@ -1,0 +1,10 @@
+{
+  "symbol": "AMD",
+  "event_date": "2026-04-24",
+  "direction": "positive",
+  "gap_pct": 10.2767,
+  "confirmation_close_pct": 13.8955,
+  "volume_ratio": 2.29,
+  "days_since_event": 4,
+  "drift_window_remaining": 56
+}
