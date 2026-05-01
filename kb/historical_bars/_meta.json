@@ -1,13 +1,11 @@
 {
-  "last_refresh": "2026-04-28T13:28:18.193233Z",
+  "last_refresh": "2026-05-01T21:14:51.277595Z",
   "ticker_count": 518,
   "feed": "iex",
   "adjustment": "all",
   "universe_size": 518,
-  "full_pulls": 518,
-  "delta_pulls": 0,
+  "full_pulls": 0,
+  "delta_pulls": 518,
   "skipped_count": 0,
-  "saved_at": "2026-05-01T20:29:25.870222Z",
-  "last_update": "2026-05-01T20:29:04.495040Z",
-  "last_update_count": 518
+  "saved_at": "2026-05-01T21:15:13.893922Z"
 }
