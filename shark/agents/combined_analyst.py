@@ -326,11 +326,13 @@ Return ONLY this JSON (no text outside it):
 
 Rules: Only set decision=BUY if confidence >= 0.70 AND risk_reward_ratio >= 2.0."""
 
+    from shark.config import get_settings
+    cfg = get_settings()
     client = _anthropic_lib.Anthropic(api_key=api_key)
 
     try:
         response = client.messages.create(
-            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+            model=cfg.claude_model,
             max_tokens=1200,
             temperature=0.2,
             system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],

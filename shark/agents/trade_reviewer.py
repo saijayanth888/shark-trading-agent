@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from shark.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -99,8 +101,9 @@ Return JSON:
 
 Grading: A=great execution, B=good but improvable, C=mediocre, D=poor execution, F=rule violation"""
 
+    cfg = get_settings()
     response = client.messages.create(
-        model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+        model=cfg.claude_model,
         max_tokens=600,
         temperature=0.3,
         system=[{"type": "text", "text": _REVIEW_SYSTEM_PROMPT}],

@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Any
 
+from shark.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -106,8 +108,9 @@ Return ONLY this JSON:
 }}"""
 
     try:
+        cfg = get_settings()
         response = client.messages.create(
-            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+            model=cfg.claude_model,
             max_tokens=600,
             temperature=0.3,
             system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
@@ -169,8 +172,9 @@ Return ONLY this JSON:
 }}"""
 
     try:
+        cfg = get_settings()
         response = client.messages.create(
-            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+            model=cfg.claude_model,
             max_tokens=600,
             temperature=0.2,
             system=[{"type": "text", "text": _JUDGE_SYSTEM, "cache_control": {"type": "ephemeral"}}],

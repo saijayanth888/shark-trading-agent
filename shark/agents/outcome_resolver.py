@@ -20,6 +20,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+from shark.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -137,8 +139,9 @@ def _generate_reflection(
             f"Thesis: {trade.get('thesis_summary', 'N/A')}\n"
         )
 
+        cfg = get_settings()
         response = client.messages.create(
-            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+            model=cfg.claude_model,
             max_tokens=300,
             temperature=0.3,
             system=[{"type": "text", "text": _REFLECTION_SYSTEM}],
