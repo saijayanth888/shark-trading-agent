@@ -30,3 +30,7 @@ grade: B
 week_return: +0.00%
 alpha: +0.00%
 win_rate: 0.0% (0W/0L)
+
+## pre-execute | 13:46 EDT
+validated: AMD
+rejected: none
