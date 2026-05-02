@@ -319,7 +319,7 @@ def _load_from_env() -> Settings:
         alpaca_secret_key=_env_str("ALPACA_SECRET_KEY"),
         alpaca_data_feed=_env_str("ALPACA_DATA_FEED", "iex"),
         anthropic_api_key=_env_str("ANTHROPIC_API_KEY"),
-        claude_model=_env_str("CLAUDE_MODEL", "claude-sonnet-4-5"),
+        claude_model=_env_str("CLAUDE_MODEL", "claude-sonnet-4-6"),
         perplexity_api_key=_env_str("PERPLEXITY_API_KEY"),
 
         # Notifications

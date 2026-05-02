@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 import anthropic
+from shark.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,9 @@ Rules:
 - Do not include any text outside the JSON object."""
 
     try:
+        cfg = get_settings()
         response = client.messages.create(
-            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+            model=cfg.claude_model,
             max_tokens=800,
             temperature=0.2,
             system=[

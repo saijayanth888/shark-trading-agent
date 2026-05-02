@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 import anthropic
+from shark.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +68,9 @@ Return ONLY a valid JSON object with this exact structure:
 Be specific about price levels based on the market data provided. Do not include any text outside the JSON object."""
 
     try:
+        cfg = get_settings()
         response = client.messages.create(
-            model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+            model=cfg.claude_model,
             max_tokens=1000,
             temperature=0.3,
             system=[
