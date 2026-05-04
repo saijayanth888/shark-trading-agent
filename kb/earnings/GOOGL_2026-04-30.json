@@ -1,0 +1,10 @@
+{
+  "symbol": "GOOGL",
+  "event_date": "2026-04-30",
+  "direction": "positive",
+  "gap_pct": 6.8233,
+  "confirmation_close_pct": 9.9124,
+  "volume_ratio": 2.76,
+  "days_since_event": 1,
+  "drift_window_remaining": 59
+}
