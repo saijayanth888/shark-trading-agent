@@ -1,0 +1,10 @@
+{
+  "symbol": "ORCL",
+  "event_date": "2026-03-11",
+  "direction": "positive",
+  "gap_pct": 11.3484,
+  "confirmation_close_pct": 9.1257,
+  "volume_ratio": 2.09,
+  "days_since_event": 36,
+  "drift_window_remaining": 24
+}
