@@ -56,3 +56,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|--------|
 | AMD    | CONFIRMED | Price in zone, volume ok, thesis intact |
 
+## 2026-05-04 — GOOGL
+**Sentiment:** 0.7
+**Thesis:** 
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| GOOGL | RESEARCH_CANDIDATE | 7 |
+
