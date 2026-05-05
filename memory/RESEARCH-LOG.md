@@ -65,3 +65,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|-------|
 | GOOGL | RESEARCH_CANDIDATE | 7 |
 
+## 2026-05-05 — AVGO
+**Sentiment:** 0.65
+**Thesis:** Weiss Ratings upgrade from hold to buy
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| AVGO | RESEARCH_CANDIDATE | 4 |
+
