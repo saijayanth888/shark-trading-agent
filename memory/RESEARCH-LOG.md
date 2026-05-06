@@ -74,3 +74,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|-------|
 | AVGO | RESEARCH_CANDIDATE | 4 |
 
+## 2026-05-06 — GOOGL
+**Sentiment:** 0.4
+**Thesis:** 
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| GOOGL | RESEARCH_CANDIDATE | 8 |
+
