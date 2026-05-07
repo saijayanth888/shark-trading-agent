@@ -83,3 +83,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|-------|
 | GOOGL | RESEARCH_CANDIDATE | 8 |
 
+## 2026-05-07 — GOOGL
+**Sentiment:** 0.5
+**Thesis:** 
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| GOOGL | RESEARCH_CANDIDATE | 6 |
+
