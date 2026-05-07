@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-06T20:16:03.708553",
+  "generated_at": "2026-05-07T20:16:14.058811",
   "state": {
     "peak_equity": 100000.0,
     "circuit_breaker_triggered": false,
@@ -56,6 +56,12 @@
     },
     {
       "date": "2026-05-06",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl": 0.0
+    },
+    {
+      "date": "2026-05-07",
       "equity": 100000.0,
       "cash": 100000.0,
       "day_pnl": 0.0
@@ -121,6 +127,16 @@
       "positions": [],
       "trades_today": 0,
       "trades_this_week": 0
+    },
+    {
+      "date": "2026-05-07",
+      "equity": 100000.0,
+      "cash": 100000.0,
+      "day_pnl_dollars": 0.0,
+      "day_pnl_pct": 0.0,
+      "positions": [],
+      "trades_today": 0,
+      "trades_this_week": 0
     }
   ],
   "open_trades": {},
@@ -138,6 +154,6 @@
     "current_drawdown_pct": 0.0
   },
   "handoff": {
-    "raw": "# Daily Handoff \u2014 2026-05-06\n\n## pre-market | 10:04 EDT\nconfirmed: GOOGL\nskipped: CCJ, XOM, AMD, NVDA, MSFT\nmarket: bullish=10 bearish=2 of 30\nregime: BEAR_VOLATILE\nmacro: NORMAL\nlessons: none\n\n## pre-execute | 13:45 EDT\nvalidated: GOOGL\nrejected: none\n\n## market-open | 13:46 EDT\ntraded: none\ncount: 0\nregime: BEAR_VOLATILE\nmacro: No major macro events nearby\n\n## daily-summary | 20:16 EDT\nequity: $100,000.00\ncash: $100,000.00\nday_pnl: +0.00%\nopen_positions: 0\ncircuit_breaker: OK\n"
+    "raw": "# Daily Handoff \u2014 2026-05-07\n\n## pre-market | 10:04 EDT\nconfirmed: GOOGL\nskipped: NVDA, AMD, CCJ, META, AVGO\nmarket: bullish=14 bearish=0 of 30\nregime: BEAR_VOLATILE\nmacro: NORMAL\nlessons: none\n\n## pre-execute | 13:45 EDT\nvalidated: GOOGL\nrejected: none\n\n## market-open | 13:46 EDT\ntraded: none\ncount: 0\nregime: BEAR_VOLATILE\nmacro: No major macro events nearby\n\n## daily-summary | 20:16 EDT\nequity: $100,000.00\ncash: $100,000.00\nday_pnl: +0.00%\nopen_positions: 0\ncircuit_breaker: OK\n"
   }
 }
