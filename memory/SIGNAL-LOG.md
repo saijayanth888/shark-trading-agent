@@ -310,3 +310,6 @@
     
   <div class="footer">Shark Trading Agent · paper mode · auto-generated</div>
 </div></body></html><hr><h3>Market Context</h3><p><strong>Sector Leaders (6m):</strong> Energy, Materials, Industrials<br><strong>Sector Laggards (6m):</strong> Communication Services, Financials, Consumer Discretionary</p>
+
+## Shark ERROR 2026-05-08: commit_memory failed
+<p>state.commit_memory() returned False during EOD summary. Manual push required.</p>
