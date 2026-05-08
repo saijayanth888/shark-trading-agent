@@ -92,3 +92,12 @@ Sections: date, watchlist scanned, top candidates, rejected with reasons.
 |--------|--------|-------|
 | GOOGL | RESEARCH_CANDIDATE | 6 |
 
+## 2026-05-08 — NVDA
+**Sentiment:** 0.65
+**Thesis:** IREN partnership announcement for 5 GW AI infrastructure deployment with $30M stock purchase option at $70/share; Corning partnership for 10x optical connectivity manufacturing capacity expansion
+**Entry:** 0.0 | **Stop:** 0.0 | **Target:** 0.0
+
+| Symbol | Status | Score |
+|--------|--------|-------|
+| NVDA | RESEARCH_CANDIDATE | 4 |
+
