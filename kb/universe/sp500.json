@@ -1,6 +1,6 @@
 {
   "source": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv",
-  "fetched_at": "2026-05-01T21:14:51.470703Z",
+  "fetched_at": "2026-05-08T21:11:18.155753Z",
   "ticker_count": 503,
   "constituents": [
     {
@@ -806,12 +806,6 @@
       "name": "Costco",
       "sector": "Consumer Staples",
       "sub_industry": "Consumer Staples Merchandise Retail"
-    },
-    {
-      "symbol": "CTRA",
-      "name": "Coterra",
-      "sector": "Energy",
-      "sub_industry": "Oil & Gas Exploration & Production"
     },
     {
       "symbol": "CRH",
@@ -2798,6 +2792,12 @@
       "name": "Valero Energy",
       "sector": "Energy",
       "sub_industry": "Oil & Gas Refining & Marketing"
+    },
+    {
+      "symbol": "VEEV",
+      "name": "Veeva Systems",
+      "sector": "Health Care",
+      "sub_industry": "Health Care Technology"
     },
     {
       "symbol": "VTR",
