@@ -17,3 +17,9 @@ traded: none
 count: 0
 regime: BEAR_VOLATILE
 macro: No major macro events nearby
+
+## weekly-review | 21:10 EDT
+grade: B
+week_return: +0.00%
+alpha: +0.00%
+win_rate: 0.0% (0W/0L)
