@@ -1,0 +1,12 @@
+Memory push failed and was NOT silently overwritten with remote.
+Time: 2026-05-08T21:10:24.632009
+Reason: push retry failed after rebase: error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403
+send-pack: unexpected disconnect while reading sideband packet
+fatal: the remote end hung up unexpectedly
+Everything up-to-dat
+
+This means today's local writes (trade log, sidecars, state) are
+still on this host but not on origin/main. Operator action required:
+  1. Inspect the conflict in memory/ vs origin/main.
+  2. Manually merge / commit / push.
+  3. rm memory/PUSH-FAILED.flag and commit the removal.
